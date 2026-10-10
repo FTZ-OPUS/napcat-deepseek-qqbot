@@ -1,0 +1,51 @@
+% ============================================================
+%  公式卡片模板 —— 用于「发图片」模式
+%  正文由 render.py 注入到文件末尾的占位符处，请勿手动改动
+%  standalone 会自动裁掉多余白边，输出紧凑的图片
+% ============================================================
+\documentclass[border=14pt,varwidth=17cm]{standalone}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+
+% ---- 表格支持 ----
+% 运筹学/线性规划的题不画表等于没答（单纯形表、运输问题表、产销平衡表）。
+% booktabs 出三线表，tabularx 撑满宽度，graphicx 提供 \resizebox 给超宽表格。
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{graphicx}
+
+% 表格里的字号比正文小一点更精致
+\newcommand{\tabfont}{\small}
+% 表头加粗
+\renewcommand{\arraystretch}{1.15}
+
+% ---- 绘图支持（数形结合：函数图像、几何图、可行域）----
+% TikZ 画几何图和示意图，PGFPlots 画函数图像。
+% 这些库都已实测可用（注意：kpsewhich 查 arrows.meta / fillbetween 会假报不存在，
+% 但实际编译没问题，别被它骗了去删）。
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,calc,intersections,patterns,angles,quotes,
+                decorations.pathreplacing,decorations.markings,
+                positioning,shapes.geometric,backgrounds,fit}
+\usepgfplotslibrary{fillbetween}
+\tikzset{every picture/.style={line join=round}}
+% 统一配色，出图好看
+\definecolor{plotA}{HTML}{2563EB}
+\definecolor{plotB}{HTML}{DC2626}
+\definecolor{plotC}{HTML}{059669}
+\definecolor{shade}{HTML}{FDBA74}
+
+% QQ 聊天窗口底色不一，统一白底深字，保证任何客户端都清晰
+\definecolor{accent}{HTML}{1F6FEB}
+\definecolor{ink}{HTML}{1A1A1A}
+\color{ink}
+
+\begin{document}
+%%__BODY__%%
+\end{document}

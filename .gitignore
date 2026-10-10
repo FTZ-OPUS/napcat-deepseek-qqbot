@@ -1,0 +1,24 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+ENV/
+
+# Secrets & Environment variables
+.env
+!.env.example
+
+# Temporary / Build outputs
+*.log
+*.tmp
+out/
+state/
+latex/*.aux
+latex/*.log
+latex/*.out

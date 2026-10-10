@@ -1,0 +1,69 @@
+% ============================================================
+%  多页推导模板 —— 用于「发 PDF」模式
+%  正文由 render.py 注入到文件末尾的占位符处，请勿手动改动
+% ============================================================
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath,amssymb}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+% ---- 表格支持 ----
+% 运筹学/线性规划的题不画表等于没答（单纯形表、运输问题表、产销平衡表）。
+% booktabs 出三线表，tabularx 撑满宽度，graphicx 提供 \resizebox 给超宽表格。
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{longtable}   % 跨页长表（多阶段单纯形表会很长）
+\usepackage{graphicx}
+
+% 表格里的字号比正文小一点更精致
+\newcommand{\tabfont}{\small}
+\renewcommand{\arraystretch}{1.15}
+
+% ---- 绘图支持（数形结合：函数图像、几何图、可行域）----
+% TikZ 画几何图和示意图，PGFPlots 画函数图像。
+% 这些库都已实测可用（注意：kpsewhich 查 arrows.meta / fillbetween 会假报不存在，
+% 但实际编译没问题，别被它骗了去删）。
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,calc,intersections,patterns,angles,quotes,
+                decorations.pathreplacing,decorations.markings,
+                positioning,shapes.geometric,backgrounds,fit}
+\usepgfplotslibrary{fillbetween}
+\tikzset{every picture/.style={line join=round}}
+\definecolor{plotA}{HTML}{2563EB}
+\definecolor{plotB}{HTML}{DC2626}
+\definecolor{plotC}{HTML}{059669}
+\definecolor{shade}{HTML}{FDBA74}
+
+\definecolor{accent}{HTML}{1F6FEB}
+\definecolor{ink}{HTML}{1A1A1A}
+\color{ink}
+
+% 页眉页脚：保持干净，只留一条分隔线和署名
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\small\color{gray} AI 助手排版 · 仅供参考}
+
+% 中文排版：首行不缩进、行距略松，阅读更舒服
+\setlength{\parindent}{0pt}
+\linespread{1.18}
+\setlength{\parskip}{0.5em}
+
+\begin{document}
+
+{\color{accent}\hrule height 1.2pt}
+\vspace{1.2em}
+
+%%__BODY__%%
+
+\vspace{1.6em}
+{\color{accent}\hrule height 1.2pt}
+
+\end{document}

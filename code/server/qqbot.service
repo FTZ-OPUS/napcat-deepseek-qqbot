@@ -1,0 +1,33 @@
+[Unit]
+Description=QQ 答疑机器人主循环 (-e阶导-)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qqbot
+Group=qqbot
+WorkingDirectory=/home/qqbot/qq-bot
+
+# LaTeX 默认往 $HOME 写缓存，而下面把 /home 设成只读了，
+# 所以必须把 HOME 和 TEXMF* 重定向到可写的工作目录里。
+Environment=HOME=/home/qqbot/qq-bot
+Environment=TEXMFVAR=/home/qqbot/qq-bot/.texmf-var
+Environment=TEXMFCONFIG=/home/qqbot/qq-bot/.texmf-config
+Environment=TEXMFHOME=/home/qqbot/qq-bot/.texmf
+
+ExecStart=/home/qqbot/qq-bot/venv/bin/python /home/qqbot/qq-bot/main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/qqbot/qq-bot/service.log
+StandardError=append:/home/qqbot/qq-bot/service.log
+
+# 这个进程会把模型输出当代码丢进 xelatex 编译，所以权限压到最低
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/qqbot/qq-bot
+
+[Install]
+WantedBy=multi-user.target

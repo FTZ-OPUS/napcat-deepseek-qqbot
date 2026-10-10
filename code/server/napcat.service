@@ -1,0 +1,18 @@
+[Unit]
+Description=NapCat (Linux QQ 3.2.34 + OneBot 11 适配器)
+Documentation=https://github.com/NapNeko/NapCatQQ
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/qqbot/Napcat
+ExecStart=/bin/bash /home/qqbot/Napcat/launcher.sh
+Restart=always
+RestartSec=20
+TimeoutStopSec=20
+StandardOutput=append:/home/qqbot/napcat.service.log
+StandardError=append:/home/qqbot/napcat.service.log
+
+[Install]
+WantedBy=multi-user.target
