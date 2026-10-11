@@ -171,6 +171,27 @@ SAFETY_CHECK_ENABLED = os.environ.get("SAFETY_CHECK_ENABLED", "1").strip() == "1
 SAFETY_OWNER_QQ = int(os.environ.get("SAFETY_OWNER_QQ", "0") or 0)
 SAFETY_CONTACT_QQ = int(os.environ.get("SAFETY_CONTACT_QQ", "0") or 0)
 SAFETY_ALERT_HOUR = int(os.environ.get("SAFETY_ALERT_HOUR", "21") or 21)
+
+# ---- 报平安的暗号校验（车主 2026-10-12 定）----
+# 为什么需要：光"能发消息"不等于"人是安全的" —— 手机可能被人拿走、被胁迫发消息。
+# 所以报平安要走两重校验：① 数字暗号 ② 只有你们俩知道的秘密问答。
+# 两重都过 = 真平安；都不对 → 判定为危险，直接给紧急联系人发警报。
+#
+# ⚠️ 这两个值**只能从 .env 读，绝不能在代码里写死** ——
+#    一旦进了公开仓库，这套保护就形同虚设。
+#    没配置时功能会拒绝开启（见 safety.py 的 arm 检查），不会假装有保护。
+SAFETY_CODE = os.environ.get("SAFETY_CODE", "").strip()
+SAFETY_SECRET_Q = os.environ.get("SAFETY_SECRET_Q", "").strip()
+SAFETY_SECRET_A = os.environ.get("SAFETY_SECRET_A", "").strip()
+
+# 问了暗号之后等多久没回就报警（秒）。默认 15 分钟。
+SAFETY_VERIFY_TIMEOUT = float(os.environ.get("SAFETY_VERIFY_TIMEOUT", "900") or 900)
+
+# 周五几点开始问"本周要不要开启"。默认 20 点。
+SAFETY_FRIDAY_ASK_HOUR = int(os.environ.get("SAFETY_FRIDAY_ASK_HOUR", "20") or 20)
+
+# "是"的有效期：周五问了之后，多久之内回"是"还算数（秒）。默认 24 小时。
+SAFETY_ASK_WINDOW = float(os.environ.get("SAFETY_ASK_WINDOW", "86400") or 86400)
 SAFETY_FRIDAY_DM_HOUR = int(os.environ.get("SAFETY_FRIDAY_DM_HOUR", "20") or 20)
 
 # ---- LaTeX 默认排版风格（车主 2026-10-11 定：默认用风格 2 彩色框版式）----
@@ -261,7 +282,7 @@ def _build_providers() -> list[dict]:
         os.environ.get("FALLBACK3_NOTE", "官方C（无到期日）"))
     # 备用3（官方D）已于 2026-10-10 撤掉 —— 车主拿它去开发了，
     # 机器人不再占用它的额度。要恢复就把上面那段 add() 加回来。
-    # 备用4：小米 MiMo（Xiaomi MiMo API 开放平台）
+    # 备用5：小米 MiMo（Xiaomi MiMo API 开放平台）
     #
     # 和火山方舟同为推理模型，但**处理方式相反** —— 实测数据：
     #     方舟：不识图也乱想，reasoning 吃掉 269~315，容易把 max_tokens 耗光
@@ -272,20 +293,37 @@ def _build_providers() -> list[dict]:
     # 多模态支持好：开着思考时它能认出卡通角色的具体出处，
     # 关掉就只能给泛泛描述 —— 说明它的思考对质量有实际贡献。
     # （下面两条小米线共用这套规矩：不关思考、多模态好。）
-    # 备用4：小米 MiMo V2.6 Pro（车主 2026-10-11 加：比 Flash 优先级高，
-    # 先给大家用好模型；11-10 到期，¥10 额度）
+    # 备用4：百度千帆（Baidu Qianfan）——车主 2026-10-12 加
+    #
+    # ⚠️ **必须关掉「思考」**，和火山方舟同一个坑（实测数据）：
+    #     max_tokens=20 不关思考 → 20 个 token 全被 reasoning 吃掉，正文返回**空字符串**
+    #     max_tokens=20 关思考   → reasoning=0，正文 1 个 token 就答完了
+    # 试过但**无效**的写法（别再用）：enable_thinking=false、reasoning_effort=none
+    # 只有 thinking={"type":"disabled"} 管用。
+    #
+    # 模型是 deepseek-v4.1-flash（上下文 144 万 token），识图实测可用。
+    # 30 天后到期、¥20 代金券（比小米的 40 天早），所以按到期日排序插在两条小米**之前**。
     add("备用4",
         os.environ.get("FALLBACK4_API_KEY"),
-        os.environ.get("FALLBACK4_BASE_URL", "https://api.xiaomimimo.com/v1"),
-        os.environ.get("FALLBACK4_MODEL", "mimo-v2.6-pro"),
-        os.environ.get("FALLBACK4_NOTE", "小米MiMo 2.6 Pro（11-10到期）"))
-    # 备用5：小米 MiMo Flash（原来排备用4，Pro 插进来后顺延）
+        os.environ.get("FALLBACK4_BASE_URL", "https://qianfan.baidubce.com/v2"),
+        os.environ.get("FALLBACK4_MODEL", "deepseek-v4.1-flash"),
+        os.environ.get("FALLBACK4_NOTE", "百度千帆（30天后到期，¥20 代金券）"),
+        extra={"thinking": {"type": "disabled"}})
+
+    # 备用5：小米 MiMo V2.6 Pro（车主 2026-10-11 加：比 Flash 优先级高，
+    # 先给大家用好模型；11-10 到期，¥10 额度）
     add("备用5",
         os.environ.get("FALLBACK5_API_KEY"),
         os.environ.get("FALLBACK5_BASE_URL", "https://api.xiaomimimo.com/v1"),
-        os.environ.get("FALLBACK5_MODEL", "mimo-v2.6-flash"),
-        os.environ.get("FALLBACK5_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
-    # 备用6：火山方舟（Volcengine Ark）
+        os.environ.get("FALLBACK5_MODEL", "mimo-v2.6-pro"),
+        os.environ.get("FALLBACK5_NOTE", "小米MiMo 2.6 Pro（11-10到期）"))
+    # 备用6：小米 MiMo Flash（原来排备用4，Pro 插进来后顺延）
+    add("备用6",
+        os.environ.get("FALLBACK6_API_KEY"),
+        os.environ.get("FALLBACK6_BASE_URL", "https://api.xiaomimimo.com/v1"),
+        os.environ.get("FALLBACK6_MODEL", "mimo-v2.6-flash"),
+        os.environ.get("FALLBACK6_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
+    # 备用7：火山方舟（Volcengine Ark）
     #
     # ⚠️ **必须关掉「思考」，这不是可选优化，是能不能用的前提。**
     # 方舟的 deepseek-v4-1-flash 是**推理模型**：它先输出 reasoning 再输出正文，
@@ -294,18 +332,18 @@ def _build_providers() -> list[dict]:
     #     max_tokens=100 → reasoning=38，正文 11 字，正常
     # 空正文会让我们的 JSON 解析直接失败。关掉思考后 reasoning=0，
     # 正文稳定返回，而且快 2.4 倍（1.3s vs 3.1s），识图质量没差。
-    add("备用6",
-        os.environ.get("FALLBACK6_API_KEY"),
-        os.environ.get("FALLBACK6_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-        os.environ.get("FALLBACK6_MODEL", "deepseek-v4-1-flash-260910"),
-        os.environ.get("FALLBACK6_NOTE", "火山方舟（推理模型/已关思考）"),
-        extra={"thinking": {"type": "disabled"}})
-    # 备用7：中转站（永远放最后一条）
     add("备用7",
         os.environ.get("FALLBACK7_API_KEY"),
-        os.environ.get("FALLBACK7_BASE_URL", "https://api.bingheai.org/v1"),
-        os.environ.get("FALLBACK7_MODEL", "deepseek-4.1-flash"),
-        os.environ.get("FALLBACK7_NOTE", "中转站（慢，最后兜底）"))
+        os.environ.get("FALLBACK7_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+        os.environ.get("FALLBACK7_MODEL", "deepseek-v4-1-flash-260910"),
+        os.environ.get("FALLBACK7_NOTE", "火山方舟（推理模型/已关思考）"),
+        extra={"thinking": {"type": "disabled"}})
+    # 备用8：中转站（永远放最后一条）
+    add("备用8",
+        os.environ.get("FALLBACK8_API_KEY"),
+        os.environ.get("FALLBACK8_BASE_URL", "https://api.bingheai.org/v1"),
+        os.environ.get("FALLBACK8_MODEL", "deepseek-4.1-flash"),
+        os.environ.get("FALLBACK8_NOTE", "中转站（慢，最后兜底）"))
     return out
 
 
@@ -319,8 +357,11 @@ VISION_MAX_IMAGES = int(os.environ.get("VISION_MAX_IMAGES", "5") or 5)
 VISION_MAX_LONG_SIDE = int(os.environ.get("VISION_MAX_LONG_SIDE", "1536") or 1536)
 
 # ---- 路径 ----
-STATE_DIR = BASE / "state"
-OUT_DIR = BASE / "out"
+# ⚠️ 可被环境变量覆盖 —— **测试必须覆盖它**，否则会把线上真实状态写坏。
+# 真实事故（2026-10-12）：测试用假 QQ 覆盖了线上 state/pmchat.json 的游标，
+# 游标一丢，重启后 pmchat 把历史私信全重答了一遍（凌晨 3 点给两个好友发了消息）。
+STATE_DIR = Path(os.environ.get("QQBOT_STATE_DIR") or (BASE / "state"))
+OUT_DIR = Path(os.environ.get("QQBOT_OUT_DIR") or (BASE / "out"))
 LATEX_DIR = BASE / "latex"
 LOG_FILE = BASE / "bot.log"
 

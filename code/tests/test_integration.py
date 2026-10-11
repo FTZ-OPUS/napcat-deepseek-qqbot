@@ -33,6 +33,12 @@ if "requests" not in sys.modules:
         sys.modules["requests"] = _fake
 
 import brain   # noqa: E402  （导入即跑提示词自检，反斜杠坏了当场炸）
+import os as _os
+import tempfile as _tempfile
+# ⚠️ 必须在 import config 之前：把状态目录指到临时目录，
+# 否则测试会写坏线上真实的 state/（2026-10-12 真实事故：游标被覆盖 → 凌晨骚扰好友）
+_os.environ.setdefault("QQBOT_STATE_DIR", _tempfile.mkdtemp(prefix="qqbot-test-state-"))
+
 import config  # noqa: E402
 import main    # noqa: E402  （导入即验证插桩点的名字都对）
 

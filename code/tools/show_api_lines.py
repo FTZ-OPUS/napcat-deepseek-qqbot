@@ -19,21 +19,23 @@ except ImportError:
 # 按接口地址特征判定；官方 DeepSeek 的余额实时读
 BY_HOST = {
     "xiaomimimo.com":  ("¥10",          "40 天后到期，多模态"),
+    "qianfan.baidubce": ("¥20",         "代金券｜推理模型，已关思考"),
     "ark.cn-beijing":  ("50 万 token",  "推理模型，已关思考"),
     "bingheai.org":    ("会员免费",      "中转站，慢，最后兜底"),
 }
-NOTE_OFFICIAL = {"主线路": "10-13 到期", "备用1": "10-17 到期", "备用2": ""}
 
 quota, note, official_total, n_official = {}, {}, 0.0, 0
 for p in config.PROVIDERS:
     name, host = p["name"], p["base_url"]
     hit = next((v for k, v in BY_HOST.items() if k in host), None)
     if hit:
-        quota[name], note[name] = hit
+        # ⚠️ 只取「额度」，**备注保留 config 里那条线路自己的** ——
+        # 小米现在有 Pro/Flash 两条，写死同一句备注会把到期日搞混。
+        quota[name] = hit[0]
+        note[name] = p["note"] or hit[1]
         continue
     # 官方 DeepSeek
     n_official += 1
-    note[name] = NOTE_OFFICIAL.get(name, "")
     got = False
     if requests:
         try:
@@ -45,6 +47,7 @@ for p in config.PROVIDERS:
             pass
     if not got:
         quota[name] = "¥?"
+    note[name] = p["note"] or note.get(name, "")
 
 def w(s):                       # 显示宽度：中文算 2 格
     return sum(2 if ord(c) > 0x2E80 else 1 for c in s)
@@ -65,7 +68,7 @@ out = [bar, f"  QQ 数学答疑机器人 · API 线路（{n} 级自动降级）"
 out += ["  " + r for r in rows]
 out += ["  " + "─" * (W - 4), "",
         f"  DeepSeek 官方 {n_official} 把合计   ¥{official_total:.2f}",
-        "  第三方兜底           小米 ¥10 ／ 方舟 50 万 token ／ 中转站 免费", "",
+        "  第三方兜底           千帆 ¥20 ／ 小米 ¥20 ／ 方舟 50 万 token ／ 中转站 免费", "",
         "  前一条失效 → 自动降级到下一条，群友完全无感",
         "  能力：被 @ 必回 · 识图批改 · 画表 · 画函数图 · 出 PDF · 闲聊 · 风格2排版",
         bar]

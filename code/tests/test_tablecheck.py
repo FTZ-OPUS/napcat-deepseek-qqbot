@@ -9,6 +9,15 @@
 """
 from __future__ import annotations
 
+# ⚠️ 状态目录隔离 —— **必须最早执行**：
+# 别的测试文件都会 `from tests.test_tablecheck import T`，所以放在这里等于给
+# 整套测试兜底。不隔离的话，测试会写坏线上真实的 state/
+# （2026-10-12 真实事故：测试用假 QQ 覆盖了线上 pmchat 游标 →
+#   重启后把历史私信全重答一遍 → 凌晨 3 点骚扰了两个好友）。
+import os as _os
+import tempfile as _tempfile
+_os.environ.setdefault("QQBOT_STATE_DIR", _tempfile.mkdtemp(prefix="qqbot-test-state-"))
+
 import sys
 from fractions import Fraction
 from pathlib import Path

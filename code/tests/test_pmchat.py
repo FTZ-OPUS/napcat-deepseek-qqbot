@@ -1,7 +1,8 @@
 """pmchat 私信问答离线测试 —— 打桩，绝不发真实私信。
 
 场景：白名单好友私信 → decide 被调 → 私信回复；
-非白名单/机器人自己的消息 → 不处理；owner 的私信不归 pmchat（归 safety）。
+非白名单/机器人自己的消息 → 不处理；owner 的私信归 pmchat（2026-10-12 起），
+但安全保镖的命令避让给 safety。
 跑法：python3 tests/test_pmchat.py
 """
 from __future__ import annotations
@@ -30,12 +31,18 @@ if "requests" not in sys.modules:
         sys.modules["requests"] = _fake
 
 import brain   # noqa: E402
+import os as _os
+import tempfile as _tempfile
+# ⚠️ 必须在 import config 之前：把状态目录指到临时目录，
+# 否则测试会写坏线上真实的 state/（2026-10-12 真实事故：游标被覆盖 → 凌晨骚扰好友）
+_os.environ.setdefault("QQBOT_STATE_DIR", _tempfile.mkdtemp(prefix="qqbot-test-state-"))
+
 import config  # noqa: E402
 import humanize  # noqa: E402
 import onebot  # noqa: E402
 import pmchat  # noqa: E402
 
-FRIEND, STRANGER, OWNER = 20000, 30000, 10001
+FRIEND, STRANGER, OWNER = 20000, 30000, <我的QQ>
 SENT: list[tuple] = []
 DECIDES: list[dict] = []
 
@@ -59,6 +66,9 @@ def reset():
     config.SAFETY_OWNER_QQ = OWNER
     humanize.sleep_typing = lambda t: 0
     humanize.split_long_text = lambda t: [t]
+    # 凌晨静默打桩为"否" —— 否则半夜跑测试会因为静默守卫而全挂（真实踩到）
+    import rampup
+    rampup.in_quiet_hours = lambda now=None: False
     brain.decide = lambda ctx, latest, **kw: (
         DECIDES.append({"latest": latest, **kw}) or
         {"action": "reply",
@@ -118,17 +128,36 @@ def test_non_friend_ignored():
     T.ok(len(DECIDES) == 0, "陌生人私信不理（防止被陌生人烧 token）")
 
 
-def test_bot_own_and_owner_excluded():
-    print("== 机器人自己的消息和车主的私信都不归 pmchat ==")
+def test_bot_own_excluded_and_owner_answered():
+    print("== 机器人自己的消息不归 pmchat；车主本人的私信正常问答（2026-10-12 车主定）==")
     reset()
+    config.PM_CHAT_USERS = [FRIEND, OWNER]        # ← 车主现在也在白名单里了
     FAKE_MSGS.append({"time": time.time() - 5,
-                      "sender": {"user_id": config.BOT_QQ or 10000, "nickname": "e阶导"},
+                      "sender": {"user_id": config.BOT_QQ or <机器人QQ>, "nickname": "e阶导"},
                       "message": [{"type": "text", "data": {"text": "✅ 已成功开启"}}]})
     FAKE_MSGS.append({"time": time.time() - 4,
                       "sender": {"user_id": OWNER, "nickname": "车主"},
+                      "message": [{"type": "text", "data": {"text": "帮我算个积分"}}]})
+    tick()
+    T.ok(len(DECIDES) == 1, "只答车主那条（机器人自己的消息跳过）")
+    T.ok("积分" in DECIDES[0]["latest"], "答的确实是车主发的内容")
+
+
+def test_safety_command_not_answered():
+    print("== 安全保镖的命令不归 pmchat（避让，别把「开启安全保镖」当聊天回）==")
+    reset()
+    config.PM_CHAT_USERS = [FRIEND, OWNER]
+    FAKE_MSGS.append({"time": time.time() - 5,
+                      "sender": {"user_id": OWNER, "nickname": "车主"},
                       "message": [{"type": "text", "data": {"text": "开启安全保镖"}}]})
     tick()
-    T.ok(len(DECIDES) == 0, "机器人和车主的私信都不走问答")
+    T.ok(len(DECIDES) == 0, "命令归 safety.py 管，pmchat 不插嘴")
+    # 对照：同样一个人说一句普通问题，就要答
+    FAKE_MSGS.append({"time": time.time() - 1,
+                      "sender": {"user_id": OWNER, "nickname": "车主"},
+                      "message": [{"type": "text", "data": {"text": "这题怎么做"}}]})
+    tick()
+    T.ok(len(DECIDES) == 1, "同一人的普通问题照答")
 
 
 def test_friend_pdf_task():
@@ -181,6 +210,31 @@ def test_sticker_part_sent_privately():
          "文字回复照发")
 
 
+def test_quiet_hours_no_private_send():
+    print("== 凌晨静默：不发私信（车主 2026-10-12 定）==")
+    reset()
+    import rampup
+    rampup.in_quiet_hours = lambda now=None: True      # 模拟凌晨
+    friend_msg("在吗，帮我看看这题", time.time() - 5)
+    tick()
+    T.ok(len(DECIDES) == 0, "凌晨不调模型、不回私信")
+    T.ok(not any(a == "send_private_msg" for a, _ in SENT), "一条私信都没发")
+
+
+def test_stale_messages_skipped():
+    print("== 时效护栏：游标丢失后，旧消息不会被重答（2026-10-12 事故的根治）==")
+    reset()
+    stale_ts = time.time() - 3600                        # 一小时前的消息
+    friend_msg("这是一小时前的老消息", stale_ts)
+    tick()
+    T.ok(len(DECIDES) == 0, "旧消息不回（只会推进游标）")
+    T.ok(pmchat._load()["last_ts"].get(str(FRIEND)) == stale_ts, "但游标推进了")
+    # 对照：刚发的消息正常回
+    friend_msg("这是刚发的", time.time() - 5)
+    tick()
+    T.ok(len(DECIDES) == 1, "新消息照常回")
+
+
 def test_never_raises():
     print("== 垃圾输入不炸主循环 ==")
     reset()
@@ -196,7 +250,9 @@ def test_never_raises():
 
 if __name__ == "__main__":
     for fn in [test_friend_pm_answered, test_watermark_no_repeat,
-               test_non_friend_ignored, test_bot_own_and_owner_excluded,
+               test_non_friend_ignored, test_bot_own_excluded_and_owner_answered,
+               test_safety_command_not_answered,
+               test_quiet_hours_no_private_send, test_stale_messages_skipped,
                test_friend_pdf_task, test_sticker_part_sent_privately,
                test_never_raises]:
         fn()

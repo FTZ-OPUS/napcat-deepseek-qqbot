@@ -26,11 +26,19 @@ import latexrender
 import media
 import onebot
 import persona
+import rampup
+import safety
 import tablecheck
 import uuid
 
 _NOW = time.time
 _POLL_INTERVAL = 30.0          # 私信轮询节流（秒）
+
+# ⚠️ 时效护栏（2026-10-12 事故后加的，**不要删**）
+# 只回"刚刚"发的消息（默认 10 分钟）。游标一旦丢失（测试污染 / 换机器 /
+# 文件损坏），所有历史消息都会被当成新消息重答一遍。
+# 真实发生过：凌晨 3 点把两个好友的历史私信全回了一遍，车主被骚扰到。
+_MAX_AGE = 600.0
 _last_run = 0.0
 _state: dict | None = None
 
@@ -43,9 +51,20 @@ def log(msg: str, level: str = "INFO") -> None:
 
 
 def _users() -> list[int]:
-    """白名单（去掉安全保镖通道的车主，那条通道归 safety.py）。"""
-    skip = {int(config.SAFETY_OWNER_QQ or 0)}
-    return [u for u in config.PM_CHAT_USERS if u and u not in skip]
+    """白名单。
+
+    ⚠️ 2026-10-12 变更：**车主本人现在也在私信问答范围内**（车主定的 ——
+    他是最该能私聊的人）。之前这里把 SAFETY_OWNER_QQ 排除掉，导致车主私信
+    完全没人理。
+
+    和安全保镖不会打架：
+      - 两边用**各自独立的时间游标**，不是互相消费
+      - safety 只在**值守开启时**、且**每天只回一次**「平安已记录」
+      - 命令消息由 `safety.is_command()` 避让（见下面的 _SKIP 判断），
+        不会把「开启安全保镖」当成聊天问题回答
+      - main.py 里两个 tick 各自 try/except，一边炸不影响另一边
+    """
+    return [u for u in config.PM_CHAT_USERS if u]
 
 
 def _load() -> dict:
@@ -239,6 +258,26 @@ def maybe_tick() -> None:
             if not fresh:
                 continue
             st["last_ts"][str(uid)] = max(float(m.get("time", 0)) for m in fresh)
+            # 避让安全保镖的命令：「开启安全保镖」这种不是聊天问题，归 safety.py 管。
+            # （车主本人现在也在白名单里，所以这道避让是必须的）
+            fresh = [m for m in fresh
+                     if not safety.is_command(onebot.message_text(m.get("message")))]
+            # ⚠️ 时效护栏：只回"刚刚"的消息。游标丢过的话，历史消息会全部涌进来。
+            cutoff = now - _MAX_AGE
+            stale = [m for m in fresh if float(m.get("time", 0)) < cutoff]
+            if stale:
+                log(f"{uid} 有 {len(stale)} 条超过 {int(_MAX_AGE)} 秒的旧消息，"
+                    f"只推进游标不回（游标可能丢过）", "WARN")
+            fresh = [m for m in fresh if float(m.get("time", 0)) >= cutoff]
+            if not fresh:
+                _save()
+                continue
+            # ⚠️ 凌晨静默：不发私信（车主 2026-10-12 定："更不要凌晨主动给他们发消息"）
+            # 复用群聊同一套静默判定，两边口径一致。
+            if rampup.in_quiet_hours(now):
+                log(f"凌晨静默：跳过 {uid} 的 {len(fresh)} 条，不主动发私信")
+                _save()
+                continue
             _save()
             for idx, m in enumerate(sorted(fresh, key=lambda x: float(x.get("time", 0)))):
                 segs = m.get("message") if isinstance(m.get("message"), list) else []
