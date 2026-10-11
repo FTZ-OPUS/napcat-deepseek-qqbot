@@ -121,6 +121,48 @@ IDLE_CHAT_ENABLED = os.environ.get("IDLE_CHAT_ENABLED", "0").strip() == "1"
 # 想让它重新变成会主动参与群聊的，把这个设成 0。
 MENTION_ONLY = os.environ.get("MENTION_ONLY", "1").strip() != "0"
 
+# ---- 闲聊强度（2026-10-10 车主要求：像 muse 一样高强度参与闲聊）----
+# 每小时最多**主动**（非被点名）发言多少条。
+#
+# 为什么必须有这个硬刹车：概率参数调高之后，遇到群里刷屏可能连着回十几条 ——
+# 概率模型没有"停"的概念，只有"接不接"。所以加一个绝对上限兜住。
+#
+# 被点名的回复**不计入**这个上限：那是群友明确要的，拒了就是产品故障。
+# 参考：群里另一个机器人 muse 实测 9.4 条/小时（最活跃的人类 10.1 条/小时）。
+MAX_CHAT_PER_HOUR = int(os.environ.get("MAX_CHAT_PER_HOUR", "10") or 10)
+
+# ---- 排版风格 ----
+# 群里有人说「风格2」时，PDF 换成彩色框那套（题目/定理用 tcolorbox 框住，
+# **解答保持白底黑字不加框**）。不说就用默认风格（全白底黑字）。
+# 车主 2026-10-10 定的。参考文档见服务器 /home/qqbot/qq-bot/docs/latex-format.md
+STYLE2_HINTS = ["风格2", "风格 2", "风格二", "style2", "style 2"]
+
+# ---- 表格算术自检（2026-10-10 交接后新增，详见 server/tablecheck.py）----
+# 单纯形表「格式对但数字是编的」一直是最大短板。开着时：
+#   1. 模型给的表先用精确分数验算（σ/z/θ 一致性 + 跨表换基穷举重算）
+#   2. 数据行可信 → 代码直接重算 σ 行回填（不花 API 钱瞬时完成）
+#   3. 数据行有错 → 把具体错误清单回传给模型重算一轮（多花一次调用）
+#   4. 还错 → 放行原文并附一句「没验算过」的标注（不假装可靠）
+# 跳过条件内置在模块里：运输问题/指派问题的表、两阶段切换自动跳过不误伤。
+TABLECHECK_ENABLED = os.environ.get("TABLECHECK_ENABLED", "1").strip() == "1"
+TABLECHECK_MAX_REVISE = int(os.environ.get("TABLECHECK_MAX_REVISE", "1") or 1)
+TABLECHECK_ANNOTATE = os.environ.get("TABLECHECK_ANNOTATE", "1").strip() == "1"
+
+# ---- PDF 解题任务（2026-10-11 车主定的第三条路）----
+# 群友发 PDF 到群里 → 引用这个 PDF 并 @ 机器人写要求（如"每页只做第一题"）
+# → 机器人把 PDF 转成 Markdown 自己读（pdf2md.py，本地转换零 API 消耗）
+# → 按要求解题 → 渲染成 PDF 发回群里。
+# 转换不花钱，花钱的是解题那一次 LLM 调用（输入 ≈ 全文 token），
+# 所以有单独的防刷冷却和长度上限。
+PDF_TASK_ENABLED = os.environ.get("PDF_TASK_ENABLED", "1").strip() == "1"
+PDF_TASK_COOLDOWN = _float("PDF_TASK_COOLDOWN", 120.0)     # 同群两次任务的最小间隔
+PDF_TASK_MAX_CHARS = int(os.environ.get("PDF_TASK_MAX_CHARS", "30000") or 30000)
+PDF_TASK_MAX_BYTES = int(os.environ.get("PDF_TASK_MAX_BYTES", str(25 * 1024 * 1024)) or 26214400)
+PDF_TASK_MAX_PAGES = int(os.environ.get("PDF_TASK_MAX_PAGES", "60") or 60)   # 超过只转前 N 页
+# 转好的 MD 缓存多久（车主 2026-10-11 定的：半小时 —— 怕群友回头追问同一个 PDF，
+# 命中缓存就跳过下载+转换；每次任务顺手清掉过期缓存）
+PDF_TASK_CACHE_TTL = _float("PDF_TASK_CACHE_TTL", 1800.0)
+
 # 机器人的名字别名（兜底用）。正常情况不用管这里 ——
 # 程序会自动从 NapCat 抓当前昵称和群名片，自动派生出"别人可能怎么叫它"。
 # 这个列表只在抓取失败时兜底。逗号分隔。
@@ -139,18 +181,21 @@ API_DOWN_ALERT_INTERVAL = _float("API_DOWN_ALERT_INTERVAL", 6 * 3600)
 def _build_providers() -> list[dict]:
     """按优先级组装 API 线路，前面的挂了自动往后换。
 
-    2026-10 的实际情况（写在注释里，方便以后维护）：
-        1. 主线路   官方 key A  10-13 到期
-        2. 备用1    官方 key B  10-17 到期
-        3. 备用2    官方 key C
-        4. 备用3    官方 key D  10-17 到期
-        5. 备用4    中转站      会员免费用，但慢（永远放最后）
+    2026-10-10 的实际情况（按到期日排序：快过期的先用掉）：
+        1. 主线路   官方A  10-13 到期
+        2. 备用1    官方B  10-17 到期
+        3. 备用2    官方E  10-17 到期
+        4. 备用3    官方C  无到期日
+        5. 备用4    小米 MiMo  40 天后到期（第三方）
+        6. 备用5    火山方舟   50 万 token（第三方）
+        7. 备用6    中转站     免费但慢（永远放最后）
     这个顺序让「额度过期」变成逐级降级，而不是突然哑掉。
     加新线路就在下面接着 add()，编号顺延，中转站永远留在最后一条。
     """
     out = []
 
-    def add(name: str, key, base, model, note: str = "") -> None:
+    def add(name: str, key, base, model, note: str = "",
+            extra: dict | None = None) -> None:
         key = (key or "").strip()
         if not key:
             return
@@ -160,6 +205,9 @@ def _build_providers() -> list[dict]:
             "key": key,
             "model": (model or "").strip(),
             "note": (note or "").strip(),
+            # 这条线路专属的额外请求参数，会并进 payload。
+            # 用途：不同厂商有各自的开关（比如火山方舟的 thinking）
+            "extra": extra or {},
         })
 
     add("主线路",
@@ -170,21 +218,60 @@ def _build_providers() -> list[dict]:
         os.environ.get("FALLBACK_BASE_URL", "https://api.deepseek.com"),
         os.environ.get("FALLBACK_MODEL", "deepseek-chat"),
         os.environ.get("FALLBACK_NOTE", ""))
+    # 备用2：官方E（10-17 到期，余额 ¥7.37）
+    #
+    # 为什么插在这个位置：**按到期日排序** ——
+    #     官方A(10-13) → 官方B(10-17) → 官方E(10-17) → 官方C(无到期)
+    # 快过期的额度先用掉，不过期的留到最后，避免"用不完就作废"。
     add("备用2",
         os.environ.get("FALLBACK2_API_KEY"),
         os.environ.get("FALLBACK2_BASE_URL", "https://api.deepseek.com"),
         os.environ.get("FALLBACK2_MODEL", "deepseek-chat"),
-        os.environ.get("FALLBACK2_NOTE", ""))
+        os.environ.get("FALLBACK2_NOTE", "官方E（10-17 到期）"))
+
     add("备用3",
         os.environ.get("FALLBACK3_API_KEY"),
         os.environ.get("FALLBACK3_BASE_URL", "https://api.deepseek.com"),
         os.environ.get("FALLBACK3_MODEL", "deepseek-chat"),
-        os.environ.get("FALLBACK3_NOTE", ""))
+        os.environ.get("FALLBACK3_NOTE", "官方C（无到期日）"))
+    # 备用3（官方D）已于 2026-10-10 撤掉 —— 车主拿它去开发了，
+    # 机器人不再占用它的额度。要恢复就把上面那段 add() 加回来。
+    # 备用4：小米 MiMo（Xiaomi MiMo API 开放平台）
+    #
+    # 和火山方舟同为推理模型，但**处理方式相反** —— 实测数据：
+    #     方舟：不识图也乱想，reasoning 吃掉 269~315，容易把 max_tokens 耗光
+    #     小米：会自己判断该想多少，解一道积分只用了 7 个 reasoning token
+    # 所以**这条不要关思考**，实测关掉反而更慢（13.5s vs 9.4s）且答案变长。
+    # 保持默认（不传 thinking 参数）即可。
+    #
+    # 多模态支持好：开着思考时它能认出卡通角色的具体出处，
+    # 关掉就只能给泛泛描述 —— 说明它的思考对质量有实际贡献。
     add("备用4",
         os.environ.get("FALLBACK4_API_KEY"),
-        os.environ.get("FALLBACK4_BASE_URL", "https://api.bingheai.org/v1"),
-        os.environ.get("FALLBACK4_MODEL", "deepseek-4.1-flash"),
-        os.environ.get("FALLBACK4_NOTE", ""))
+        os.environ.get("FALLBACK4_BASE_URL", "https://api.xiaomimimo.com/v1"),
+        os.environ.get("FALLBACK4_MODEL", "mimo-v2.6-flash"),
+        os.environ.get("FALLBACK4_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
+    # 备用5：火山方舟（Volcengine Ark）
+    #
+    # ⚠️ **必须关掉「思考」，这不是可选优化，是能不能用的前提。**
+    # 方舟的 deepseek-v4-1-flash 是**推理模型**：它先输出 reasoning 再输出正文，
+    # 而 **reasoning 也算进 max_tokens**。实测：
+    #     max_tokens=50  → reasoning 就吃掉 50，正文返回**空字符串**
+    #     max_tokens=100 → reasoning=38，正文 11 字，正常
+    # 空正文会让我们的 JSON 解析直接失败。关掉思考后 reasoning=0，
+    # 正文稳定返回，而且快 2.4 倍（1.3s vs 3.1s），识图质量没差。
+    add("备用5",
+        os.environ.get("FALLBACK5_API_KEY"),
+        os.environ.get("FALLBACK5_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+        os.environ.get("FALLBACK5_MODEL", "deepseek-v4-1-flash-260910"),
+        os.environ.get("FALLBACK5_NOTE", "火山方舟（推理模型/已关思考）"),
+        extra={"thinking": {"type": "disabled"}})
+    # 备用6：中转站（永远放最后一条）
+    add("备用6",
+        os.environ.get("FALLBACK6_API_KEY"),
+        os.environ.get("FALLBACK6_BASE_URL", "https://api.bingheai.org/v1"),
+        os.environ.get("FALLBACK6_MODEL", "deepseek-4.1-flash"),
+        os.environ.get("FALLBACK6_NOTE", "中转站（慢，最后兜底）"))
     return out
 
 

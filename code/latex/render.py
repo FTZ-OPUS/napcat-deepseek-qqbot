@@ -39,6 +39,19 @@ TEMPLATES = {
     "doc":  BASE / "template_doc.tex",    # 多页推导 -> PDF
 }
 
+# 风格 2：题目/定理用彩色框（tcolorbox），**解答不框**、保持白底黑字。
+# 只在 doc 模式有意义；card 模式没有「题目/解答」的区分。
+TEMPLATES_STYLE2 = {
+    "doc": BASE / "template_doc_style2.tex",
+}
+
+
+def pick_template(mode: str, style: str = ""):
+    """按 (mode, style) 选模板。style 不认识就退回默认。"""
+    if str(style).strip() == "2" and mode in TEMPLATES_STYLE2:
+        return TEMPLATES_STYLE2[mode]
+    return TEMPLATES[mode]
+
 # 危险宏黑名单：读写任意文件、执行命令、篡改类别码。
 # \b 结尾保证不会误伤 \inputencoding 这类正常宏。
 FORBIDDEN_RE = re.compile(
@@ -86,9 +99,10 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def compile_tex(mode: str, body: str, out_dir: Path, name: str, keep_tex: bool) -> tuple[Path, str]:
+def compile_tex(mode: str, body: str, out_dir: Path, name: str, keep_tex: bool,
+                style: str = "") -> tuple[Path, str]:
     """编译出 PDF，返回 (pdf 路径, 编译日志)。"""
-    template = TEMPLATES[mode]
+    template = pick_template(mode, style)
     if not template.exists():
         raise RenderError(f"模板不存在：{template}")
 
@@ -182,6 +196,8 @@ def main() -> int:
     src.add_argument("--body-file", help="从文件读正文")
     ap.add_argument("--out", default=str(BASE.parent / "out"), help="输出目录")
     ap.add_argument("--name", default="answer", help="输出文件名（不含后缀）")
+    ap.add_argument("--style", default="",
+                    help="排版风格：留空=默认（全白底黑字）；2=题目/定理彩色框")
     ap.add_argument("--dpi", type=int, default=RASTER_DPI)
     ap.add_argument("--keep-tex", action="store_true", help="保留中间 .tex 便于排查")
     args = ap.parse_args()
@@ -195,7 +211,7 @@ def main() -> int:
     try:
         with open(lock_path, "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            pdf, _ = compile_tex(args.mode, body, out_dir, args.name, args.keep_tex)
+            pdf, _ = compile_tex(args.mode, body, out_dir, args.name, args.keep_tex, args.style)
             png = rasterize(pdf, out_dir, args.name, args.dpi) if args.mode == "card" else None
     except RenderError as e:
         print(f"[失败] {e}", file=sys.stderr)

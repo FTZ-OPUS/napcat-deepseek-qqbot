@@ -190,5 +190,34 @@ def get_group_msg_history(group_id: int, count: int = 30) -> list[dict]:
     return payload.get("messages") or []
 
 
+def get_msg(message_id) -> dict:
+    """按 message_id 取单条消息（reply 引用回溯用）。"""
+    return call("get_msg", message_id=message_id).get("data") or {}
+
+
+def download_file(url: str, dest, timeout: int = 90,
+                  max_bytes: int = 25 * 1024 * 1024) -> None:
+    """把 QQ 群文件的下载 URL 拉到本地（流式 + 大小护栏）。
+
+    群文件消息自带 url（QQ 网盘中转直链，无需鉴权）。
+    超过 max_bytes 视为异常文件，拒绝落盘 —— 防止有人拿大文件刷磁盘。
+    """
+    dest = Path(dest)
+    try:
+        with requests.get(url, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            total = 0
+            with open(dest, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise OneBotError(
+                            f"文件超过 {max_bytes // 1024 // 1024}MB 上限，拒绝下载")
+                    fh.write(chunk)
+    except requests.RequestException as exc:
+        dest.unlink(missing_ok=True)
+        raise OneBotError(f"文件下载失败: {exc}") from exc
+
+
 def get_login_info() -> dict:
     return call("get_login_info").get("data") or {}

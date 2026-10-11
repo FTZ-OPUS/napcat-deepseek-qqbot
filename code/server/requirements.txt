@@ -1,3 +1,6 @@
 requests>=2.31.0
 # Pillow 用于把群友发来的图压到合适尺寸再送进多模态请求，控制 token 开销
 Pillow>=10.0.0
+# pymupdf4llm 给 pdf2md.py 用：PDF→Markdown 转换（群友文档处理场景）。
+# 只拉 pymupdf 一个依赖（~50MB wheel），不与机器人运行时冲突。
+pymupdf4llm>=0.0.27

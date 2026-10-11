@@ -32,6 +32,22 @@ def log_issue(msg: str) -> None:
 #  静态提示词片段（集中放这里，方便启动时自检）
 # ============================================================
 
+STYLE2_HINT = """
+【本次排版用「风格 2」—— 彩色框版】
+提问者点名要了这个风格，模板里已经加载好 tcolorbox，可以直接用：
+- **题目**用 `\\begin{problembox}` 框住（蓝色框）：
+    `\\begin{problembox}[题目]` … `\\end{problembox}`
+- **定理/引理/结论**用 `\\begin{theorembox}` 框住（红色框）：
+    `\\begin{theorembox}[定理]` … `\\end{theorembox}`（括号里可以写「定理」「引理」「推论」）
+- 想强调易错点可以用 `\\begin{notebox}[注意]`（橙色框）
+
+- ⚠️ **解答过程绝对不要用框！** 直接当普通正文写，白底黑字。
+  这是车主明确要求的 —— 题目和解答都是色块的话，整页没有视觉对比，
+  反而看不出哪里是题目、哪里是解答。**框只用来框"输入"，不框"输出"。**
+- 配色可用模板里定义的：ptblue / ptred / ptgold / ptgreen / ptpurple / ptteal / ptorange
+- 画图时也可以用这些颜色（比如 `\\draw[ptblue, very thick]`）
+"""
+
 PDF_HINT = """
 【本次硬性要求：输出 PDF】
 提问者明确要求用 PDF 形式回复。请把完整的解答合并成 **一个** math 片段，mode 固定填 "doc"。
@@ -39,9 +55,12 @@ PDF_HINT = """
 - 不要再输出 text 片段，所有内容都进 PDF
 - 正文里不要出现 \\documentclass / \\usepackage / \\begin{document}
 - 结构建议：先说思路一段，再给关键公式，再给结论
-- ⚠️ 但如果你判断这条消息其实**不是在跟你要 PDF**（比如只是在聊 PDF 这个格式、
-  评价别人的 PDF、或者要别人发 PDF），那就**别输出 PDF** ——
-  该正常回复就正常回复，该 ignore 就 ignore。没有真实问题就不要硬造一份文档。
+- ⚠️ 什么情况才允许不输出 PDF：**只有这条消息里根本没有具体问题/任务**，
+  纯粹在聊 PDF 这个格式的时候（问你能不能读 PDF、评价别人的 PDF、
+  让别人去发 PDF）—— 那就正常用文字回，别硬造文档。
+- ⚠️ 反过来（车主 2026-10-11 钉死的规矩）：只要消息里**带着具体的问题或任务**、
+  又提到要 PDF，那就是要「PDF 版的解答」，**必须输出 mode="doc"**——
+  哪怕解答只有几行、很短，也不许只回文字。
 """
 
 # 带图时用。__N__ 会被替换成实际张数（用 replace 而不是 format，
@@ -52,6 +71,32 @@ IMAGE_HINT_TEMPLATE = """
   就逐步核对：哪一步对、哪一步错、错在什么地方，别含糊带过
 - 严禁说"我看不到图片""请把图片转成文字"这类话 —— 你确实能看到
 - 图上文字看不清的部分，就直说看不清，不要瞎猜
+"""
+
+# 单纯形表验算没过时，带着错误清单让模型重算（tablecheck.revise 回调用）。
+# __ISSUES__ / __LATEX__ 由 revise_table 用 replace 填（别用 format，花括号打架）
+TABLE_FIX_PROMPT = """
+【表格数字校对任务】
+下面这段数学解答的 LaTeX 正文里，单纯形表已经被程序用精确分数验算过，发现这些错误：
+
+__ISSUES__
+
+—— 原正文如下 ——
+
+__LATEX__
+
+—— 原正文结束 ——
+
+请把每一处都改对。要求：
+- 先逐条对照上面的错误清单，再从头用 σ=c−z 约定把每张表重算一遍
+  （σ_j = c_j − z_j，目标值 z = c_B·b，θ = b/a，换基：主元行归一化、其余行消元）
+- 只改数字和由数字导出的结论（σ 行 / z 值 / θ 列 / c_B / 入基出基的文字说明）
+- 表格结构、文字讲解、排版命令**全部保持原样**，不要增删表、不要换环境
+- 前面的表改了，后面所有表跟着重算，别只改被抓到的那一处
+- 如果重算后发现题目其实无可行解或无界，就明确改口说明，不要硬凑一个解
+- 输出的 LaTeX 会被原样编译，反斜杠正常写
+
+只输出一个 JSON 对象，格式：{"latex": "修正后的完整 LaTeX 正文"}
 """
 
 
@@ -72,7 +117,8 @@ def _assert_prompt_fragments_clean() -> None:
     所以这里只在运行时检查静态文案的值。
     """
     forbidden = re.compile(r"[\x00-\x09\x0b-\x1f]")   # 允许换行(LF)和回车(CR)，其余控制字符都算损坏
-    for label, text in (("PDF_HINT", PDF_HINT), ("IMAGE_HINT_TEMPLATE", IMAGE_HINT_TEMPLATE)):
+    for label, text in (("PDF_HINT", PDF_HINT), ("IMAGE_HINT_TEMPLATE", IMAGE_HINT_TEMPLATE),
+                        ("TABLE_FIX_PROMPT", TABLE_FIX_PROMPT)):
         hits = forbidden.findall(text)
         if hits:
             codes = ", ".join(sorted({hex(ord(c)) for c in hits}))
@@ -120,12 +166,19 @@ def _coerce_pdf(parts: list[dict]) -> list[dict]:
     """用户明确要 PDF 时的兜底：保证最终一定产出一个 doc 片段。
 
     正常情况模型会听话直接给 doc；这里是它没听话时的保险。
+    ⚠️ 例外（车主 2026-10-11 定的）：模型一个公式都没给、只回纯文字，
+    多半是它用了 PDF_HINT 里的出口——判断了「这条其实不是在要文件」
+    （真实案例：有人问"你能不能阅读 pdf"，被硬掰成一份 PDF 文档）。
+    聊天就该是聊天，纯文字回答放行，别做成文件。
     """
     # 要 PDF 的时候，表情包/视频没有意义（全都要塞进文档里）
     parts = [p for p in parts if p["kind"] in ("text", "math")]
 
     if any(p["kind"] == "math" and p["mode"] == "doc" for p in parts):
         return parts
+
+    if not any(p["kind"] == "math" for p in parts):
+        return parts          # 纯文字回答：模型判断不需要文件，尊重它
 
     maths = [p for p in parts if p["kind"] == "math"]
     texts = [p["text"] for p in parts if p["kind"] == "text"]
@@ -218,7 +271,8 @@ def _normalize(result: dict, pdf_requested: bool = False) -> dict:
 def decide(context: str, latest: str, mentioned: bool,
            pdf_requested: bool = False, style_hint: str = "",
            image_urls: list[str] | None = None,
-           bot_name: str = "") -> dict:
+           bot_name: str = "", style_variant: str = "",
+           max_tokens: int | None = None) -> dict:
     """问模型：这条要不要接？怎么接？返回 {"action", "parts", "reason"}。
 
     image_urls 是 data-url 形式的图片，非空时走多模态请求。
@@ -240,6 +294,9 @@ def decide(context: str, latest: str, mentioned: bool,
 
     # 静态片段都在模块顶部，启动时已自检过（见 _assert_prompt_fragments_clean）
     pdf_hint = PDF_HINT if pdf_requested else ""
+    # 风格 2：告诉模型可以用彩色框（但**只有题目/定理能框，解答别框**）
+    if style_variant == "2":
+        pdf_hint += STYLE2_HINT
     image_hint = (IMAGE_HINT_TEMPLATE.replace("__N__", str(len(image_urls)))
                   if image_urls else "")
 
@@ -273,7 +330,9 @@ def decide(context: str, latest: str, mentioned: bool,
     # 输出预算：要出一份 PDF（尤其是运筹学那种好几张单纯形表的题）时，
     # 1500 token 根本不够 —— 会写到一半被截断，JSON 不完整 → 整条回复报废。
     # 实测两阶段法完整解需要 3000+ 输出 token。
-    max_tokens = 8000 if pdf_requested else 3000
+    # max_tokens 参数给 PDF 任务用：不强制 PDF（让模型按体量选文字/图片/PDF）
+    # 但保留大预算，防止它选了长解答却被截断。
+    max_tokens = max_tokens or (8000 if pdf_requested else 3000)
 
     # 依次尝试各条线路：主线路挂了就自动换备用，不让机器人哑掉
     for provider in config.PROVIDERS:
@@ -287,6 +346,9 @@ def decide(context: str, latest: str, mentioned: bool,
             "temperature": 1.05,
             "max_tokens": max_tokens,
         }
+        # 线路专属参数（比如火山方舟必须 thinking=disabled，否则正文可能是空的）
+        if provider.get("extra"):
+            payload.update(provider["extra"])
         endpoint = f"{provider['base_url']}/chat/completions"
 
         try:
@@ -321,6 +383,16 @@ def decide(context: str, latest: str, mentioned: bool,
                 log_issue(last_reason)
                 break
 
+            # 空正文单独识别 —— 以前只会报"无法解析"，看不出真正原因。
+            # 典型场景：推理模型把 max_tokens 全用在思考上，正文一个字都没有。
+            if not (content or "").strip():
+                last_reason = (
+                    f"{provider['name']} 返回空正文（finish_reason="
+                    f"{choice.get('finish_reason')}）。若是推理模型，"
+                    f"通常是思考吃光了 max_tokens 配额")
+                log_issue(last_reason)
+                continue
+
             result = _normalize(_extract_json(content), pdf_requested)
         except Exception as exc:
             last_reason = f"{provider['name']} 返回内容无法解析: {exc}"
@@ -330,3 +402,59 @@ def decide(context: str, latest: str, mentioned: bool,
         return result
 
     return {"action": "ignore", "parts": [], "reason": last_reason}
+
+
+def revise_table(latex: str, issues: list[str]) -> str | None:
+    """单纯形表验算没过 → 带着错误清单让模型重算一遍。
+
+    只干这一件事：返回修正后的完整 LaTeX 正文；任何失败返回 None
+    （调用方会走兜底，不会让机器人哑掉）。max_tokens 给到和 PDF 同级 ——
+    要回传的是整篇正文，被截断的 JSON 等于白改。
+    """
+    if not config.DEEPSEEK_API_KEY or not (issues and latex.strip()):
+        return None
+
+    issue_text = "\n".join(f"{k}. {s}" for k, s in enumerate(issues, 1))
+    user_prompt = (TABLE_FIX_PROMPT
+                   .replace("__ISSUES__", issue_text)
+                   .replace("__LATEX__", latex))
+
+    for provider in config.PROVIDERS:
+        payload = {
+            "model": provider["model"],
+            "messages": [{"role": "user", "content": user_prompt}],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2,          # 校对任务要稳，不要发散
+            "max_tokens": 8000,
+        }
+        if provider.get("extra"):
+            payload.update(provider["extra"])
+
+        try:
+            resp = requests.post(
+                f"{provider['base_url']}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {provider['key']}",
+                    "Content-Type": "application/json",
+                },
+                json=payload, timeout=120,
+            )
+        except requests.RequestException:
+            continue
+        if resp.status_code != 200:
+            continue
+
+        try:
+            choice = resp.json()["choices"][0]
+            content = choice["message"]["content"]
+            # 截断的 JSON 解不出来也修不了，换线路同样截断，直接放弃这条线路
+            if choice.get("finish_reason") == "length" or not (content or "").strip():
+                continue
+            fixed = _extract_json(content).get("latex")
+        except Exception:
+            continue
+
+        if isinstance(fixed, str) and fixed.strip() \
+                and fixed.strip() != latex.strip():
+            return fixed.strip()
+    return None

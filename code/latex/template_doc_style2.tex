@@ -1,0 +1,125 @@
+% ============================================================
+%  多页推导模板 · 风格 2（彩色题目/定理框）
+%
+%  和 template_doc.tex（默认风格）的区别：
+%    默认风格 = 全部白底黑字，只有一条蓝色分隔线
+%    风格 2   = **题目**和**定理**用 tcolorbox 彩色框框住，
+%               **解答仍然白底黑字、不加任何框**
+%
+%  ⚠️ 为什么解答不框（车主 2026-10-10 明确要求）：
+%    参考文档里把「定理」和「证明」都框了，结果整页全是色块 ——
+%    题目和解答没有视觉对比，反而看不出哪里是问题、哪里是解答。
+%    所以这里只框「输入」（题目/定理），不框「输出」（解答过程）。
+%
+%  正文由 render.py 注入到文件末尾的占位符处，请勿手动改动
+%  ⚠️ 注意：注释里**不能写出占位符的字面量**——
+%     否则 replace() 会把注释里的那处也替换掉，占位符变成 2 个，直接编译失败。
+% ============================================================
+\documentclass[11pt,a4paper]{ctexart}
+\usepackage{amsmath,amssymb}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+% ---- 表格支持 ----
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{longtable}
+\usepackage{graphicx}
+\newcommand{\tabfont}{\small}
+\renewcommand{\arraystretch}{1.15}
+
+% ---- 绘图支持 ----
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,calc,intersections,patterns,angles,quotes,
+                decorations.pathreplacing,decorations.markings,
+                positioning,shapes.geometric,backgrounds,fit}
+\usepgfplotslibrary{fillbetween}
+\tikzset{every picture/.style={line join=round}}
+\definecolor{plotA}{HTML}{2563EB}
+\definecolor{plotB}{HTML}{DC2626}
+\definecolor{plotC}{HTML}{059669}
+\definecolor{shade}{HTML}{FDBA74}
+
+% ---- 风格 2 专属：彩色框 ----
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{enumitem}
+
+% 颜色主题（取自车主的 latex-format 参考）
+\definecolor{ptred}{HTML}{D64545}
+\definecolor{ptgold}{HTML}{D4A017}
+\definecolor{ptgreen}{HTML}{2E8B57}
+\definecolor{ptblue}{HTML}{3A7CA5}
+\definecolor{ptpurple}{HTML}{7B3F8C}
+\definecolor{ptteal}{HTML}{008080}
+\definecolor{ptorange}{HTML}{E07020}
+\definecolor{ptbg}{HTML}{F8F5F0}
+
+% 【题目框】蓝框，标题左贴 —— 用来框「题目/问题」
+\newtcolorbox{problembox}[1][题目]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptblue!70!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top left={xshift=3mm,yshift=-3mm},
+    boxed title style={colback=ptblue,sharp corners,size=small},
+    fonttitle=\large,
+    before skip=12pt, after skip=14pt
+}
+
+% 【定理框】红框，标题居中 —— 用来框「定理/引理/结论」
+\newtcolorbox{theorembox}[1][定理]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptred!70!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top center={xshift=0mm,yshift=-3mm},
+    boxed title style={colback=ptred,sharp corners,size=small},
+    fonttitle=\large\centering,
+    before skip=16pt, after skip=14pt
+}
+
+% 【注意框】橙框 —— 可选，用来强调易错点
+\newtcolorbox{notebox}[1][注意]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptorange!80!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top left={xshift=3mm,yshift=-3mm},
+    boxed title style={colback=ptorange,sharp corners,size=small},
+    fonttitle=\large,
+    before skip=12pt, after skip=12pt
+}
+
+% ⚠️ 故意不提供「解答框」——解答就用普通正文，白底黑字。
+%    如果你（未来的维护者）想加，先想清楚：题目框和解答框都是色块时，
+%    整页会失去视觉层次，这是车主明确否掉的做法。
+
+% ---- 文档外观 ----
+\definecolor{accent}{HTML}{1F6FEB}
+\definecolor{ink}{HTML}{1A1A1A}
+\color{ink}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\small\color{gray} AI 助手排版 · 风格 2 · 仅供参考}
+
+\setlength{\parindent}{0pt}
+\linespread{1.18}
+\setlength{\parskip}{0.5em}
+
+\begin{document}
+
+{\color{accent}\hrule height 1.2pt}
+\vspace{1.2em}
+
+%%__BODY__%%
+
+\vspace{1.6em}
+{\color{accent}\hrule height 1.2pt}
+
+\end{document}

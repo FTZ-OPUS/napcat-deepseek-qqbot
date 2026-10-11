@@ -35,8 +35,11 @@ def _ensure_math_mode(body: str) -> str:
     return "\\[\n" + body + "\n\\]"
 
 
-def render(latex_body: str, mode: str = "card") -> Path:
-    """把 LaTeX 正文渲染成图片(card)或 PDF(doc)，返回产物路径。"""
+def render(latex_body: str, mode: str = "card", style: str = "") -> Path:
+    """把 LaTeX 正文渲染成图片(card)或 PDF(doc)，返回产物路径。
+
+    style="2" 时用风格 2 模板（题目/定理彩色框，解答不框）。
+    """
     if mode not in ("card", "doc"):
         mode = "card"
     if not latex_body.strip():
@@ -55,6 +58,7 @@ def render(latex_body: str, mode: str = "card") -> Path:
         "--body-file", str(body_file),
         "--out", str(config.OUT_DIR),
         "--name", name,
+        "--style", str(style),
     ]
 
     try:
