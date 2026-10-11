@@ -35,17 +35,47 @@ def _ensure_math_mode(body: str) -> str:
     return "\\[\n" + body + "\n\\]"
 
 
-def render(latex_body: str, mode: str = "card", style: str = "") -> Path:
+# 模型有时把换行写成**字面的两个字符**「反斜杠 + n」，直接进 .tex 就炸。
+# ⚠️ 必须加「后面不跟字母」这个条件 —— \n 是 \neq / \nabla / \newline /
+#    \node 这些命令的开头，无脑替换会把 \neq 变成 eq。
+_LITERAL_NEWLINE = re.compile(r"(?<!\\)\\n(?![A-Za-z])")
+
+
+def _fix_literal_newlines(body: str) -> str:
+    """把模型写的字面 `\\n` 换成真换行。
+
+    为什么需要：模型在 JSON 里写 `\\\\n`（本想表示换行），JSON 解析后变成
+    **字面的两个字符「反斜杠 + n」**，直接进 .tex 就编译失败：
+
+        l.64 \\section*{题目}\\n设 $0<a_n<1$...
+        Undefined control sequence.
+
+    真实事故（2026-10-11）：群友让人批改作业，渲染失败 →
+    「所有片段都没发成功」，但收尾话还说「订正版附上了」，
+    群友追问「批改完了PDF咋不发」。一天内犯了两次。
+
+    安全性：负向先行断言 (?![A-Za-z]) 保证只有「后面是中文/标点/空白/行尾」
+    才替换。实测 \\neq / \\nabla / \\newline / \\node 全部原样保留。
+    """
+    return _LITERAL_NEWLINE.sub("\n", body)
+
+
+def render(latex_body: str, mode: str = "card", style: str | None = None) -> Path:
     """把 LaTeX 正文渲染成图片(card)或 PDF(doc)，返回产物路径。
 
-    style="2" 时用风格 2 模板（题目/定理彩色框，解答不框）。
+    style 默认取 config.LATEX_DEFAULT_STYLE（车主 2026-10-11 定：默认「风格 2」
+    彩色框版式）。card 模板没有框的区别，风格 2 对 card 自动回退普通模板。
     """
+    if style is None:
+        style = config.LATEX_DEFAULT_STYLE
     if mode not in ("card", "doc"):
         mode = "card"
     if not latex_body.strip():
         raise RenderError("LaTeX 正文为空")
 
-    latex_body = _ensure_math_mode(latex_body.strip())
+    # 先修字面 \n（模型转义残留），再做数学模式兜底
+    latex_body = _fix_literal_newlines(latex_body.strip())
+    latex_body = _ensure_math_mode(latex_body)
 
     name = f"ans_{uuid.uuid4().hex[:10]}"
     body_file = config.STATE_DIR / f"{name}.tex"

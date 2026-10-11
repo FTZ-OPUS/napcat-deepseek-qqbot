@@ -163,6 +163,30 @@ PDF_TASK_MAX_PAGES = int(os.environ.get("PDF_TASK_MAX_PAGES", "60") or 60)   # �
 # 命中缓存就跳过下载+转换；每次任务顺手清掉过期缓存）
 PDF_TASK_CACHE_TTL = _float("PDF_TASK_CACHE_TTL", 1800.0)
 
+# ---- 周末平安值守（车主 2026-10-11 定的个人安全功能，详见 server/safety.py）----
+# 车主私信「开启安全保镖」才开启；周六周日每天 21:00 前私信发「平安」；
+# 没报 → 群里 @ 紧急联系人发警报；周一自动解除。
+# ⚠️ SAFETY_OWNER_QQ 不填 = 整个功能不生效；两个 QQ 都必须是机器人的好友。
+SAFETY_CHECK_ENABLED = os.environ.get("SAFETY_CHECK_ENABLED", "1").strip() == "1"
+SAFETY_OWNER_QQ = int(os.environ.get("SAFETY_OWNER_QQ", "0") or 0)
+SAFETY_CONTACT_QQ = int(os.environ.get("SAFETY_CONTACT_QQ", "0") or 0)
+SAFETY_ALERT_HOUR = int(os.environ.get("SAFETY_ALERT_HOUR", "21") or 21)
+SAFETY_FRIDAY_DM_HOUR = int(os.environ.get("SAFETY_FRIDAY_DM_HOUR", "20") or 20)
+
+# ---- LaTeX 默认排版风格（车主 2026-10-11 定：默认用风格 2 彩色框版式）----
+# "2" = doc 渲染走 template_doc_style2.tex（题目/定理彩色框，解答不框）。
+# card 图片没有框的区别，自动回退普通卡片模板。
+LATEX_DEFAULT_STYLE = os.environ.get("LATEX_DEFAULT_STYLE", "2")
+
+# ---- 私信问答（白名单制，2026-10-11 配合安全保镖的介绍上线）----
+# 白名单里的好友私信机器人 → 正常问答回复。不在名单里的一概不处理。
+# 安全保镖通道（SAFETY_OWNER_QQ）不在此列 —— 那条通道归 safety.py 专用。
+PM_CHAT_ENABLED = os.environ.get("PM_CHAT_ENABLED", "1").strip() == "1"
+PM_CHAT_USERS = [
+    int(u) for u in os.environ.get("PM_CHAT_USERS", "").replace("，", ",").split(",")
+    if u.strip().isdigit()
+]
+
 # 机器人的名字别名（兜底用）。正常情况不用管这里 ——
 # 程序会自动从 NapCat 抓当前昵称和群名片，自动派生出"别人可能怎么叫它"。
 # 这个列表只在抓取失败时兜底。逗号分隔。
@@ -181,14 +205,15 @@ API_DOWN_ALERT_INTERVAL = _float("API_DOWN_ALERT_INTERVAL", 6 * 3600)
 def _build_providers() -> list[dict]:
     """按优先级组装 API 线路，前面的挂了自动往后换。
 
-    2026-10-10 的实际情况（按到期日排序：快过期的先用掉）：
+    2026-10-11 的实际情况（按到期日排序：快过期的先用掉）：
         1. 主线路   官方A  10-13 到期
         2. 备用1    官方B  10-17 到期
         3. 备用2    官方E  10-17 到期
         4. 备用3    官方C  无到期日
-        5. 备用4    小米 MiMo  40 天后到期（第三方）
-        6. 备用5    火山方舟   50 万 token（第三方）
-        7. 备用6    中转站     免费但慢（永远放最后）
+        5. 备用4    小米 MiMo V2.6 Pro  11-10 到期（¥10）
+        6. 备用5    小米 MiMo Flash     40 天期
+        7. 备用6    火山方舟   50 万 token（第三方）
+        8. 备用7    中转站     免费但慢（永远放最后）
     这个顺序让「额度过期」变成逐级降级，而不是突然哑掉。
     加新线路就在下面接着 add()，编号顺延，中转站永远留在最后一条。
     """
@@ -246,12 +271,21 @@ def _build_providers() -> list[dict]:
     #
     # 多模态支持好：开着思考时它能认出卡通角色的具体出处，
     # 关掉就只能给泛泛描述 —— 说明它的思考对质量有实际贡献。
+    # （下面两条小米线共用这套规矩：不关思考、多模态好。）
+    # 备用4：小米 MiMo V2.6 Pro（车主 2026-10-11 加：比 Flash 优先级高，
+    # 先给大家用好模型；11-10 到期，¥10 额度）
     add("备用4",
         os.environ.get("FALLBACK4_API_KEY"),
         os.environ.get("FALLBACK4_BASE_URL", "https://api.xiaomimimo.com/v1"),
-        os.environ.get("FALLBACK4_MODEL", "mimo-v2.6-flash"),
-        os.environ.get("FALLBACK4_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
-    # 备用5：火山方舟（Volcengine Ark）
+        os.environ.get("FALLBACK4_MODEL", "mimo-v2.6-pro"),
+        os.environ.get("FALLBACK4_NOTE", "小米MiMo 2.6 Pro（11-10到期）"))
+    # 备用5：小米 MiMo Flash（原来排备用4，Pro 插进来后顺延）
+    add("备用5",
+        os.environ.get("FALLBACK5_API_KEY"),
+        os.environ.get("FALLBACK5_BASE_URL", "https://api.xiaomimimo.com/v1"),
+        os.environ.get("FALLBACK5_MODEL", "mimo-v2.6-flash"),
+        os.environ.get("FALLBACK5_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
+    # 备用6：火山方舟（Volcengine Ark）
     #
     # ⚠️ **必须关掉「思考」，这不是可选优化，是能不能用的前提。**
     # 方舟的 deepseek-v4-1-flash 是**推理模型**：它先输出 reasoning 再输出正文，
@@ -260,18 +294,18 @@ def _build_providers() -> list[dict]:
     #     max_tokens=100 → reasoning=38，正文 11 字，正常
     # 空正文会让我们的 JSON 解析直接失败。关掉思考后 reasoning=0，
     # 正文稳定返回，而且快 2.4 倍（1.3s vs 3.1s），识图质量没差。
-    add("备用5",
-        os.environ.get("FALLBACK5_API_KEY"),
-        os.environ.get("FALLBACK5_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-        os.environ.get("FALLBACK5_MODEL", "deepseek-v4-1-flash-260910"),
-        os.environ.get("FALLBACK5_NOTE", "火山方舟（推理模型/已关思考）"),
-        extra={"thinking": {"type": "disabled"}})
-    # 备用6：中转站（永远放最后一条）
     add("备用6",
         os.environ.get("FALLBACK6_API_KEY"),
-        os.environ.get("FALLBACK6_BASE_URL", "https://api.bingheai.org/v1"),
-        os.environ.get("FALLBACK6_MODEL", "deepseek-4.1-flash"),
-        os.environ.get("FALLBACK6_NOTE", "中转站（慢，最后兜底）"))
+        os.environ.get("FALLBACK6_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+        os.environ.get("FALLBACK6_MODEL", "deepseek-v4-1-flash-260910"),
+        os.environ.get("FALLBACK6_NOTE", "火山方舟（推理模型/已关思考）"),
+        extra={"thinking": {"type": "disabled"}})
+    # 备用7：中转站（永远放最后一条）
+    add("备用7",
+        os.environ.get("FALLBACK7_API_KEY"),
+        os.environ.get("FALLBACK7_BASE_URL", "https://api.bingheai.org/v1"),
+        os.environ.get("FALLBACK7_MODEL", "deepseek-4.1-flash"),
+        os.environ.get("FALLBACK7_NOTE", "中转站（慢，最后兜底）"))
     return out
 
 

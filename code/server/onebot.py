@@ -195,6 +195,20 @@ def get_msg(message_id) -> dict:
     return call("get_msg", message_id=message_id).get("data") or {}
 
 
+def get_file(file_id: str) -> dict:
+    """按 file_id 取文件（NapCat 会下载到本地，返回本地路径等信息）。"""
+    return call("get_file", file_id=file_id).get("data") or {}
+
+
+def get_friend_msg_history(user_id: int, count: int = 15) -> list[dict]:
+    """拉好友私信历史（NapCat 扩展接口）。失败抛 OneBotError，由调用方兜底。"""
+    data = call("get_friend_msg_history", user_id=user_id, count=count)
+    payload = data.get("data")
+    if isinstance(payload, list):
+        return payload
+    return (payload or {}).get("messages") or []
+
+
 def download_file(url: str, dest, timeout: int = 90,
                   max_bytes: int = 25 * 1024 * 1024) -> None:
     """把 QQ 群文件的下载 URL 拉到本地（流式 + 大小护栏）。

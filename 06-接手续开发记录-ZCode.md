@@ -125,7 +125,7 @@
 
 - **群文件消息自带下载直链**：`get_group_msg_history` 里的 file 段含 `file_id` 和 `url`（QQ 网盘中转直链，无需鉴权），连 `get_group_file_url` 都不用调
 - **引用回查**：QQ 的 reply 段只带 message_id，用 `get_msg` 回查原消息确认是 `.pdf`（其他文件不触发）；文件消息有 message_id，所以可以被引用
-- **复用现有管线**：解题走 `brain.decide` —— 人格、JSON 输出协议、七级 API 降级、LaTeX 渲染、单纯形表验算全部复用
+- **复用现有管线**：解题走 `brain.decide` —— 人格、JSON 输出协议、八级 API 降级、LaTeX 渲染、单纯形表验算全部复用
 - **失败体面**：扫描件（图片型）转不出文字时 @ 群友说明，不烧 token
 
 ### 3.3 防刷与缓存（车主明确要求的）
@@ -153,6 +153,29 @@
 存放：服务器 `docs/数学巧解方法论·技能文档.md`（属主 qqbot，644）。**注意：这份文档没有注入机器人提示词**——persona 每个字都随每次调用发给 API，整篇注入 = 每次聊天变相烧 token。文档躺在 docs/ 里随时可被代码读取，是否接入提示词由车主决定。
 
 ---
+
+## 4.5 工作五：安全保镖（车主私人的周末签到与紧急通知功能，2026-10-11）
+
+「安全保镖」：开启后，周末每天车主私信签到，到点没签到机器人就**私信**指定联系人发出保镖警报（私信失败才降级群里 @——宁可露脸不可漏报）；周一自动解除。出于隐私，公开文档只记实现位置，不展开用途。
+
+- 实现：`server/safety.py`（安全保镖，状态机落盘 `state/safety_check.json`）+ `main.py` 两个挂点（车主命令最早拦截、主循环 60 秒 tick）+ `onebot.get_friend_msg_history`
+- 开关：`SAFETY_OWNER_QQ`（车主 QQ，空=功能休眠）、`SAFETY_CONTACT_QQ`（联系人）、`SAFETY_ALERT_HOUR=21`
+- 测试：`tests/test_safety.py`，25 项断言（时间全注入，覆盖 21:00 警报/报平安豁免/两天独立/周一自解/非车主装聋/机器人自己的私信不算签到）
+- 两个保命级设计：①好友私信历史里混着机器人自己的消息，**必须按发送者过滤**（机器人的确认语里就有签到关键词，不过滤 = 真出事时警报永远不响）；②周一自动解除防陈旧状态误触发
+- 私信走 NapCat 扩展接口 `get_friend_msg_history`；**车主与联系人 QQ 都必须是机器人好友**
+
+## 4.6 工作六：私信问答（白名单制，2026-10-11）
+
+上线动机：车主要给朋友介绍机器人"私信一句话就行"，而主循环原本只轮询群消息。实现 `server/pmchat.py`：白名单（`PM_CHAT_USERS`）好友私信 → `brain.decide` 正常问答 → 私信回复（文字/card/PDF 全支持，表格自检同款）。安全保镖通道（车主私信）自动排除、归 safety.py。**私信发 PDF 也支持**：好友私信发 PDF 文件 → 下载（url 或 get_file）→ 转 MD → 文件前最近的一条文字消息当指令（没有就默认写阅读总结）→ 按体量选输出形式私信发回。测试 `tests/test_pmchat.py` 14 项断言。
+
+## 4.7 默认排版风格切换为风格 2（2026-10-11 深夜）
+
+车主觉得彩色框版式更好看，**默认渲染风格已切换**：
+- `config.LATEX_DEFAULT_STYLE="2"`（`.env` 可改）
+- `main.py` style_variant 恒取默认；`latexrender.render` 的 style 默认值接 config（不传也走风格 2）
+- `brain.py` STYLE2_HINT 改为常态提示并加 card 边界（框环境只许 doc 用，card 模板没 tcolorbox 写了会炸）
+- card 模式无风格 2 模板属 DSH 原设计，自动回退普通卡片，不是 bug
+- 风格 2 触发词（群里说「风格2」）保留但已成无差别操作
 
 ## 5. 事故案例：NapCat 内部崩溃（2026-10-11，停机 28 分钟）
 
@@ -199,6 +222,8 @@
 | `server/persona.py` | 修改 | 文件名指引加「阅读总结」 |
 | `server/config.py` | 修改 | `TABLECHECK_*` 与 `PDF_TASK_*` 两组开关 |
 | `server/onebot.py` | 修改 | `get_msg()`（引用回查）、`download_file()`（流式 + 大小护栏） |
+| `server/pmchat.py` | **新增** | 私信问答（白名单制） |
+| `server/safety.py` | **新增** | 安全保镖（车主私人功能，状态机落盘） |
 | `server/requirements.txt` | 修改 | + `pymupdf4llm>=0.0.27` |
 | `server/.env.example` | 修改 | + 新开关模板 |
 | `tests/`（3 个文件） | **新增** | 29 + 27 + 36 项断言，全离线 |
@@ -215,6 +240,8 @@ PDF_TASK_COOLDOWN=120       # 同群两次任务最小间隔（秒）
 PDF_TASK_MAX_CHARS=30000    # 喂给模型的 MD 字符上限（超长截断）
 PDF_TASK_MAX_PAGES=60       # 最多转换多少页
 PDF_TASK_CACHE_TTL=1800     # MD 缓存半小时（车主定的）
+SAFETY_OWNER_QQ=            # 周末签到功能：车主 QQ（空=休眠）
+SAFETY_CONTACT_QQ=          # 紧急联系人 QQ
 ```
 
 ---

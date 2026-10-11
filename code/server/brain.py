@@ -33,8 +33,8 @@ def log_issue(msg: str) -> None:
 # ============================================================
 
 STYLE2_HINT = """
-【本次排版用「风格 2」—— 彩色框版】
-提问者点名要了这个风格，模板里已经加载好 tcolorbox，可以直接用：
+【排版版式说明 —— 默认就是「风格 2」彩色框版】
+所有 PDF（doc 模式）渲染都用彩色框模板，tcolorbox 已加载好，可以直接用：
 - **题目**用 `\\begin{problembox}` 框住（蓝色框）：
     `\\begin{problembox}[题目]` … `\\end{problembox}`
 - **定理/引理/结论**用 `\\begin{theorembox}` 框住（红色框）：
@@ -44,6 +44,9 @@ STYLE2_HINT = """
 - ⚠️ **解答过程绝对不要用框！** 直接当普通正文写，白底黑字。
   这是车主明确要求的 —— 题目和解答都是色块的话，整页没有视觉对比，
   反而看不出哪里是题目、哪里是解答。**框只用来框"输入"，不框"输出"。**
+- ⚠️ **框环境（problembox/theorembox/notebox）只许用在 doc/PDF 里**：
+  card 图片模板没有加载这些环境，在 card 里写会直接编译失败。
+  card 图片的排版走模板自带样式，正常写公式就行。
 - 配色可用模板里定义的：ptblue / ptred / ptgold / ptgreen / ptpurple / ptteal / ptorange
 - 画图时也可以用这些颜色（比如 `\\draw[ptblue, very thick]`）
 """

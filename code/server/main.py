@@ -27,7 +27,9 @@ import media
 import onebot
 import pdf2md
 import persona
+import pmchat
 import rampup
+import safety
 import tablecheck
 import vision
 
@@ -158,6 +160,29 @@ def refresh_bot_names(force: bool = False) -> None:
 
 
 STYLE2_HINT_LIST = list(config.STYLE2_HINTS)
+
+
+# 批改类请求的触发词。这类任务天生要一份能留档的报告，不该走「纯打字」。
+GRADE_HINTS = ["批改", "批阅", "订正", "改一下", "看看对不对", "检查一下",
+               "检查下", "帮我看看", "对不对"]
+
+
+def wants_grading_report(text: str, mentioned: bool, has_image: bool) -> bool:
+    """是不是「被点名 + 带图 + 让批改作业」？
+
+    为什么要代码强制、而不用提示词：提示词里把规则写了两遍，实测模型
+    **仍然选纯打字**（2026-10-11 23:27 实测：批改请求 → 4 条文字 + 1 张图，PDF×0）。
+    而 `pdf_requested=True` 会注入 PDF_HINT（"必须输出 mode=doc"），
+    这个机制实测 100% 有效 —— 所以复用同一个出口。
+
+    为什么批改必须出报告（车主 2026-10-11 定的）：
+    1. 批改报告群友要留档、要打印、要逐条对照
+    2. 纯打字那条路会被拆成好几条消息刷屏 ——
+       实测一次 200 字的批改被拆成 5 条消息，比一份 PDF 烦人得多
+    """
+    if not (mentioned and has_image):
+        return False
+    return any(h in (text or "") for h in GRADE_HINTS)
 
 
 def wants_style2(text: str) -> bool:
@@ -629,6 +654,14 @@ def handle_message(group_id: int, msg: dict, history: list[dict], index: int, st
     message = msg.get("message")
     text = onebot.message_text(message)
 
+    # 周末平安值守：车主本人的开启/关闭/状态命令。最早拦截、群里只吞不回
+    # （回复一律走私信），非车主发相关词完全不触发（装聋，不暴露功能）。
+    if config.SAFETY_CHECK_ENABLED and safety.feature_live():
+        sender_qq = (msg.get("sender") or {}).get("user_id")
+        if text and safety.handle_owner_command(text, sender_qq, via_group=True):
+            state.last_reply[group_id] = time.time()
+            return
+
     # 取图（包含 reply 引用的那条消息里的图）—— 这是「能看图」的关键一步
     quoted_text, image_urls = vision.extract(message)
     if quoted_text:
@@ -651,9 +684,12 @@ def handle_message(group_id: int, msg: dict, history: list[dict], index: int, st
     if not text and not image_urls:
         return
     # 必须先算出 mentioned，PDF 请求只有「对着机器人提」才算数
-    pdf_requested = wants_pdf(text, mentioned)
-    # 排版风格：群里说「风格2」才用彩色框那套，不说就用默认
-    style_variant = "2" if (mentioned and wants_style2(text)) else ""
+    # 批改类（带图 + 让批改）由代码强制当「要 PDF」处理，见 wants_grading_report 的注释
+    pdf_requested = (wants_pdf(text, mentioned)
+                     or wants_grading_report(text, mentioned, bool(image_urls)))
+    # 排版风格：车主 2026-10-11 定，默认就是「风格 2」彩色框版式
+    # （原来群里说「风格2」才切换，现在永远用它；wants_style2 保留只为兼容）
+    style_variant = config.LATEX_DEFAULT_STYLE
     params = rampup.effective()
 
     ok, reason = should_reply(text, mentioned, params,
@@ -818,6 +854,14 @@ def main() -> int:
         try:
             for group_id in config.ALLOWED_GROUPS:
                 loop_group(group_id, state)
+            try:
+                safety.maybe_tick(config.ALLOWED_GROUPS[0])
+            except Exception as exc:
+                log(f"安全值守 tick 异常：{exc}", "WARN")
+            try:
+                pmchat.maybe_tick()
+            except Exception as exc:
+                log(f"私信问答 tick 异常：{exc}", "WARN")
             failures = 0
         except KeyboardInterrupt:
             log("收到中断，退出")
