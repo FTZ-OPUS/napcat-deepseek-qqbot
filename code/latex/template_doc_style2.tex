@@ -17,6 +17,26 @@
 % ============================================================
 \documentclass[11pt,a4paper]{ctexart}
 \usepackage{amsmath,amssymb}
+% ---- 2026-10-12 补：模型常用但原先缺失的命令（缺失会导致整篇渲染失败）----
+\usepackage{mathrsfs}   % \mathscr 花体（真实事故：这个缺失导致 PDF 发不出去）
+\usepackage{bm}          % \bm 粗体数学符号
+\usepackage{cancel}      % \cancel 划掉
+\usepackage{mathtools}   % \coloneqq 等，且增强 amsmath（须在 amsmath 之后）
+% ---- 2026-10-12 补：模型写证明/定理时**天天会用到**这些环境 ----
+% 真实事故：模型写 \begin{proof} → "Environment proof undefined" → 整篇渲染失败
+\usepackage{amsthm}
+\newtheorem{theorem}{定理}
+\newtheorem{lemma}[theorem]{引理}
+\newtheorem{corollary}[theorem]{推论}
+\newtheorem{proposition}[theorem]{命题}
+\theoremstyle{definition}
+\newtheorem{definition}{定义}
+\newtheorem{example}{例}
+\theoremstyle{remark}
+\newtheorem{remark}{注}
+% proof 环境由 amsthm 自带，不用再定义
+
+
 \usepackage[a4paper,margin=2.2cm]{geometry}
 \usepackage{xcolor}
 \usepackage{fancyhdr}
@@ -35,7 +55,38 @@
 % ---- 绘图支持 ----
 \usepackage{tikz}
 \usepackage{pgfplots}
+% ══════════ 第二种画图风格（车主 2026-10-14 定）══════════
+% 风格一（**主，约六成**）：上面 rbox/rarr 的手写坐标 TikZ —— 精确、可控
+% 风格二（**辅，偶尔用**）：自动布局的示意图 —— 省事、配色自动
+%    · smartdiagram → 流程图 / 循环图 / 阶梯递进图 / 优先级图
+%    · tikz-cd      → 交换图（代数：同态、映射、正合列）
+%    · forest       → 树状图（分类、语法树）
+\usepackage{smartdiagram}
+\usepackage{tikz-cd}
+\usepackage{forest}
 \pgfplotsset{compat=1.18}
+
+% ══════════ 关系图配色与样式（"彩色方框 + 带标签箭头"，2026-10-13 加）══════════
+% 用途：政治/数学里画「知识点关系图」——比如 生产力 →决定→ 生产关系 →决定→ 上层建筑
+%       配上反向的红色虚线「反作用」。也适用于维恩图、流程图、包含关系。
+% 为什么预置：让模型不必每次自己调颜色和箭头，**画得好看又稳定**。
+\definecolor{rbA}{HTML}{3A7CA5}   % 蓝
+\definecolor{rbB}{HTML}{2E8B57}   % 绿
+\definecolor{rbC}{HTML}{E07020}   % 橙
+\definecolor{rbD}{HTML}{7B3F8C}   % 紫
+\definecolor{rbR}{HTML}{D64545}   % 红（反作用 / 否定）
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+\tikzset{
+  % 用法：\node[rbox=rbA] (a) {生产力};
+  rbox/.style={rounded corners=3pt, draw=#1!65, fill=#1!12, line width=0.8pt,
+               minimum height=0.95cm, minimum width=2.2cm,
+               font=\small\bfseries, align=center, inner sep=4pt},
+  % 用法：\draw[rarr, rbA] (a) -- node[above,font=\scriptsize]{决定} (b);
+  rarr/.style={-{Stealth[length=2.4mm]}, line width=0.9pt},
+  % 反向虚线（反作用/否定）：\draw[rarrR, dashed] (b) to[bend left=28] (a);
+  rarrR/.style={-{Stealth[length=2.4mm]}, line width=0.9pt, dashed},
+}
+
 \usetikzlibrary{arrows.meta,calc,intersections,patterns,angles,quotes,
                 decorations.pathreplacing,decorations.markings,
                 positioning,shapes.geometric,backgrounds,fit}

@@ -43,6 +43,12 @@ for p in config.PROVIDERS:
                 headers={"Authorization": f"Bearer {p['key']}"}, timeout=15).json()
             b = float(r["balance_infos"][0]["total_balance"])
             quota[name] = f"¥{b:.2f}"; official_total += b; got = True
+            # 顺手存一份余额快照 —— token 统计那边用它**反推真实单价**
+            try:
+                import usage as _u
+                _u.snapshot_balance(name, b)
+            except Exception:
+                pass
         except Exception:
             pass
     if not got:

@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import io
 import re
+import time
 
 import requests
 
@@ -41,19 +42,50 @@ def _looks_like_qq_face(data: dict) -> bool:
     return bool(_QQ_FACE_RE.match(str(data.get("summary", "")).strip()))
 
 
-def _images_in(message) -> list[dict]:
-    """从消息段数组里挑出图片段。"""
+def _images_in(message, depth: int = 0) -> list[dict]:
+    """从消息段数组里挑出图片段。
+
+    ⚠️ 2026-10-15 加：**支持 forward（合并转发）**。
+    真实事故：群友引用了一条**转发消息**让机器人解题，机器人回
+    「图片都没收到」—— 因为转发里的图不在 image 段里，
+    而在 forward 段的子节点里，必须用 get_forward_msg 展开才看得到。
+    群里引用转发是很常见的操作（尤其转来的题目）。
+    """
     out = []
     if not isinstance(message, list):
         return out
     for seg in message:
-        if not isinstance(seg, dict) or seg.get("type") != "image":
+        if not isinstance(seg, dict):
             continue
-        data = seg.get("data") or {}
-        if _looks_like_qq_face(data) or not data.get("url"):
-            continue
-        out.append(data)
+        _ty = seg.get("type")
+        if _ty == "image":
+            data = seg.get("data") or {}
+            if _looks_like_qq_face(data) or not data.get("url"):
+                continue
+            out.append(data)
+        elif _ty == "forward" and depth < 2:
+            fid = (seg.get("data") or {}).get("id")
+            if not fid:
+                continue
+            for node in _forward_nodes(fid):
+                nm = node.get("message") or node.get("content")
+                out.extend(_images_in(nm, depth + 1))
     return out
+
+
+def _forward_nodes(forward_id) -> list[dict]:
+    """用 get_forward_msg 展开一条合并转发，返回节点列表（失败返回空）。"""
+    for _try in range(2):
+        try:
+            resp = onebot.call("get_forward_msg", id=forward_id)
+            data = resp.get("data") or {}
+            nodes = data.get("messages") or data.get("message") or []
+            if isinstance(nodes, list) and nodes:
+                return nodes
+        except Exception:
+            pass
+        time.sleep(0.35)
+    return []
 
 
 def extract(message) -> tuple[str, list[str]]:
@@ -93,13 +125,25 @@ def extract(message) -> tuple[str, list[str]]:
 
 
 def _fetch_quoted(message_id) -> tuple[str, list[dict]]:
-    """回溯被引用的消息，返回 (文字, 图片段列表)。"""
-    try:
-        resp = onebot.call("get_msg", message_id=message_id)
-    except Exception:
+    """回溯被引用的消息，返回 (文字, 图片段列表)。
+
+    ⚠️ 2026-10-15 加：**空结果重试**。实测 get_msg 偶尔返回 message: []
+    （消息刚落库、还没进缓存），隔 0.4 秒再问就有了。
+    不重试的话，群友刚发的图会被判成「没收到图片」。
+    """
+    message = None
+    for _try in range(3):
+        try:
+            resp = onebot.call("get_msg", message_id=message_id)
+            payload = resp.get("data") or {}
+            message = payload.get("message")
+            if isinstance(message, list) and message:
+                break
+        except Exception:
+            message = None
+        time.sleep(0.4)
+    if not message:
         return "", []
-    payload = resp.get("data") or {}
-    message = payload.get("message")
     text = onebot.message_text(message)
     return text, _images_in(message)
 
@@ -115,6 +159,78 @@ def _download(url: str) -> bytes | None:
     if not raw or len(raw) > MAX_DOWNLOAD:
         return None
     return raw
+
+
+def looks_handwritten(raw: bytes) -> bool:
+    """粗判：这张图是**拍照的纸面手稿**，还是**干净的截图/印刷题**？
+
+    为什么需要这个判断（车主 2026-10-13 定）：
+      群友反映「草稿纸上的手写题」识别难度大，别的机器人（用 Gemini）认得更准，
+      人都跑去那边批改草稿了。所以**手写稿走 Gemini 识图，正常题走 DeepSeek**。
+
+    ⚠️ 判错的代价**不对称**：
+      · 误判成手写 → 只是多花几秒（走一次 Gemini，实测 8.9s vs 0.8s）
+      · 误判成截图 → 手写题可能被读错，**答案就错了**
+    所以判断**宁可宽松**。
+
+    ⚠️ 阈值是**实测校准**过的（2026-10-13），不是拍脑袋：
+      | 样张            | 纸面亮度 | 对比 | 格式 |
+      | 干净渲染图(截图) | 255.0   |  0.0 | PNG  |
+      | 白底 PNG        | 255.0   |  0.0 | PNG  |
+      | 拍照模拟·中退化  | 243.6   | 20.3 | JPEG |
+      | 拍照模拟·强退化  | 233.5   | 25.3 | JPEG |
+      两组分得很开 —— **纯白截图纸面恒为 255、对比恒为 0**。
+    """
+    try:
+        import io
+        from PIL import Image
+        img = Image.open(io.BytesIO(raw))
+        fmt = (img.format or "").upper()
+        im = img.convert("L")
+        if max(im.size) < 60:
+            return False
+        im.thumbnail((400, 400))          # 小图统计，快很多且够用
+        px = im.load()
+        w, h = im.size
+        vals = sorted(px[x, y] for y in range(0, h, 3) for x in range(0, w, 3))
+        if not vals:
+            return False
+        top = vals[int(len(vals) * 0.9):] or vals[-1:]
+        paper = sum(top) / len(top)                     # 纸面（最亮那一批）
+        inner = vals[int(len(vals) * 0.2):int(len(vals) * 0.8)] or vals
+        mid = sum(inner) / len(inner)                   # 中部亮度
+        contrast = paper - mid                          # 纸面 vs 内容的对比
+        dark = sum(1 for v in vals if v < 128) / len(vals)
+
+        if dark < 0.002 and contrast < 4:               # 几乎空白，别折腾
+            return False
+        # ① 纸面不是纯白（拍照纸面偏灰/偏黄，实测 233~244，纯白截图恒 255）
+        # ② 纸面与内容有明显对比（光照不均/阴影，实测 >20，纯白截图为 0）
+        # ③ 有损格式 + 纸面不白（手机拍照基本走 JPEG）
+        if paper < 250 or contrast > 8:
+            return True
+        if fmt == "JPEG" and paper < 253:
+            return True
+        return False
+    except Exception:
+        # 判不出来时**按手写处理**（宁可慢几秒，也不要把手写题读错）
+        return True
+
+
+def any_handwritten(data_urls: list[str]) -> bool:
+    """这批图里**有没有手写稿**（有就走 Gemini 识图）。
+
+    data_urls 是 `data:image/...;base64,...` 形式，解出原始字节再判。
+    """
+    for u in (data_urls or []):
+        try:
+            b64 = u.split(",", 1)[1] if "," in u else u
+            import base64
+            if looks_handwritten(base64.b64decode(b64)):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _to_data_url(raw: bytes) -> str:

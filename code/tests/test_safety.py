@@ -71,9 +71,9 @@ def reset():
     config.SAFETY_OWNER_QQ = OWNER
     config.SAFETY_CONTACT_QQ = CONTACT
     # 报平安的两重校验（车主 2026-10-12）：测试用固定值
-    config.SAFETY_CODE = "000000"
-    config.SAFETY_SECRET_Q = "我们之间的那个秘密问题？"
-    config.SAFETY_SECRET_A = "示例答案"
+    config.SAFETY_CODE = "<SENSITIVE_C>"
+    config.SAFETY_SECRET_Q = "你最喜欢的角色是谁？"
+    config.SAFETY_SECRET_A = "<SENSITIVE_B>"
     config.SAFETY_VERIFY_TIMEOUT = 900
     config.SAFETY_FRIDAY_ASK_HOUR = 20
     config.SAFETY_ASK_WINDOW = 86400
@@ -99,9 +99,9 @@ def _say(text, y, m, d, h, mi, s=0):
 
 def do_arm():
     """双保险开启：第一次「开启」→ 反问；第二次「开启」→ 真正开启。"""
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     s1 = safety._load()["armed"]
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     s2 = safety._load()["armed"]
     return s1, s2
 
@@ -141,12 +141,12 @@ def test_double_confirm_arm():
     print("== 双保险开启：第一次反问，第二次才开；群里无痕迹 ==")
     reset()
     set_clock(2026, 10, 16, 21, 0)          # 周五
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     st = safety._load()
     T.ok(st["armed"] is False and st["pending_arm_ts"] > 0, "第一次：未开启、进入待确认")
     T.ok(any("再说一次" in str(p) for _, p in dms()), "私信反问确认")
     T.ok(group_sends() == [], "群里没有任何痕迹")
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     st = safety._load()
     T.ok(st["armed"] is True and st["pending_arm_ts"] == 0, "第二次：真正开启")
     T.ok(any("已经成功开启" in str(p) for _, p in dms()), "明确回复「已经成功开启」")
@@ -157,22 +157,22 @@ def test_confirm_word_and_expire_and_cancel():
     print("== 「确认」可代替第二次开启；超时重问；「取消」作废 ==")
     reset()
     set_clock(2026, 10, 16, 21, 0)
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     set_clock(2026, 10, 16, 21, 3)
     safety.handle_owner_command("确认", OWNER, via_group=True)
     T.ok(safety._load()["armed"] is True, "「确认」完成双保险")
     # 超时：11 分钟后再说开启 → 重新反问
     reset()
     set_clock(2026, 10, 16, 21, 0)
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     set_clock(2026, 10, 16, 21, 11)
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     T.ok(safety._load()["armed"] is False, "超过 10 分钟窗口：第二次不直接生效")
     T.ok(any("再说一次" in str(p) for _, p in dms()[-1:]), "重新反问确认")
     # 取消
     reset()
     set_clock(2026, 10, 16, 21, 0)
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     safety.handle_owner_command("取消", OWNER, via_group=True)
     st = safety._load()
     T.ok(st["pending_arm_ts"] == 0 and st["armed"] is False, "取消清空待确认")
@@ -183,7 +183,7 @@ def test_double_arm_when_already_armed():
     reset()
     set_clock(2026, 10, 17, 12, 0)
     do_arm()
-    safety.handle_owner_command("开启安全保镖", OWNER, via_group=True)
+    safety.handle_owner_command("开启<SENSITIVE_A>", OWNER, via_group=True)
     T.ok(safety._load()["armed"] is True, "状态保持")
     T.ok(any("已经在进行中" in str(p) for _, p in dms()), "提示不重复开")
 
@@ -192,7 +192,7 @@ def test_non_owner_deaf():
     print("== 非车主发开启命令 → 完全装聋 ==")
     reset()
     set_clock(2026, 10, 16, 21, 0)
-    T.ok(safety.handle_owner_command("开启安全保镖", 999, via_group=True) is False,
+    T.ok(safety.handle_owner_command("开启<SENSITIVE_A>", 999, via_group=True) is False,
          "非车主返回 False")
     T.ok(safety._load()["armed"] is False and dms() == [], "没开启、没私信、没暴露")
 
@@ -206,7 +206,7 @@ def test_saturday_alert_when_no_ping():
     tick()
     cd = dms_to(CONTACT)
     T.ok(len(cd) == 1, "警报私信发给联系人")
-    T.ok("车主现在可能遭遇了危险" in str(cd), "警报为车主约定的原话")
+    T.ok("<OWNER_NAME>现在可能遭遇了危险" in str(cd), "警报为车主约定的原话")
     T.ok(group_sends() == [], "正常路径不在群里发")
     set_clock(2026, 10, 17, 21, 30, 30)
     tick()
@@ -232,7 +232,7 @@ def test_code_ok_confirms_ping():
     set_clock(2026, 10, 17, 12, 0)
     do_arm()
     _say("在", 2026, 10, 17, 14, 0)
-    _say("000000", 2026, 10, 17, 14, 1)
+    _say("<SENSITIVE_C>", 2026, 10, 17, 14, 1)
     st = safety._load()
     T.ok(st["pings"].get("2026-10-17"), "平安已记录")
     T.ok(not st["challenge"], "校验状态已清")
@@ -254,7 +254,7 @@ def test_wrong_code_then_secret_ok():
     T.ok(st["challenge"].get("stage") == "secret", "升级到秘密问答")
     T.ok(any("最喜欢的角色" in str(p) for _, p in dms_to(OWNER)), "问了秘密问题")
     T.ok(dms_to(CONTACT) == [], "错一次还不报警")
-    _say("示例答案", 2026, 10, 17, 14, 2)
+    _say("<SENSITIVE_B>", 2026, 10, 17, 14, 2)
     T.ok(safety._load()["pings"].get("2026-10-17"), "答对秘密 → 平安记录")
     T.ok(dms_to(CONTACT) == [], "全程没误报")
 
@@ -298,7 +298,7 @@ def test_safe_marker_on_every_message():
     do_arm()
     _say("在", 2026, 10, 17, 14, 0)
     _say("123456", 2026, 10, 17, 14, 1)
-    _say("示例答案", 2026, 10, 17, 14, 2)
+    _say("<SENSITIVE_B>", 2026, 10, 17, 14, 2)
     me = dms_to(OWNER)
     T.ok(me, "有发给车主的消息")
     T.ok(all("（安全）" in str(p) for _, p in me), f"每条都带标记（共 {len(me)} 条）")
@@ -343,7 +343,7 @@ def test_sunday_separate_from_saturday():
     set_clock(2026, 10, 17, 12, 0)
     do_arm()
     _say("平安", 2026, 10, 17, 20, 0)
-    _say("000000", 2026, 10, 17, 20, 1)      # 周六正常验证通过
+    _say("<SENSITIVE_C>", 2026, 10, 17, 20, 1)      # 周六正常验证通过
     T.ok(safety._load()["pings"].get("2026-10-17"), "周六已确认平安")
     set_clock(2026, 10, 18, 21, 5, 30)
     tick()
@@ -382,7 +382,7 @@ def test_disarm_command():
     set_clock(2026, 10, 17, 12, 0)
     do_arm()
     set_clock(2026, 10, 17, 18, 0, 30)
-    T.ok(safety.handle_owner_command("关闭安全保镖", OWNER, via_group=False) is True,
+    T.ok(safety.handle_owner_command("关闭<SENSITIVE_A>", OWNER, via_group=False) is True,
          "私信通道随时可关")
     T.ok(any("已成功关闭" in str(p) for _, p in dms()), "明确回复「已成功关闭」")
     set_clock(2026, 10, 17, 21, 30, 30)
@@ -426,7 +426,7 @@ def test_dm_fail_falls_back_to_group():
     tick()
     onebot.send_private_text = orig
     T.ok(len(group_at()) == 1, "降级为群里 @ 联系人")
-    T.ok(any("车主现在可能遭遇了危险" in str(p) for a, p in group_at()),
+    T.ok(any("<OWNER_NAME>现在可能遭遇了危险" in str(p) for a, p in group_at()),
          "降级后文案不变")
 
 

@@ -1,7 +1,7 @@
 """safety.py —— 周末平安值守（车主 2026-10-11 定的个人安全功能）
 
 功能（车主原话的需求形态）：
-  - 开关只由车主本人说了算：私信（或群里 @）机器人「开启安全保镖」才开，说「关闭」才关
+  - 开关只由车主本人说了算：私信（或群里 @）机器人「开启<SENSITIVE_A>」才开，说「关闭」才关
   - 开启当天（约定周五）机器人私信车主，把私信通道打开、讲清规则
   - 周六、周日每天车主私信**随便说句话**就算报平安（有生命迹象即可，不必说特定词）
   - 哪天到 21:00 一条消息都没有 → 机器人私信紧急联系人发车主约定的警报原文
@@ -49,9 +49,9 @@ _STATE_PATH = Path(config.STATE_DIR) / "safety_check.json"
 _state: dict | None = None
 _last_tick = 0.0
 
-_ARM_RE = re.compile(r"开启(?:安全保镖|安全保镖|安全值守|平安值守)")
-_DISARM_RE = re.compile(r"关闭(?:安全保镖|安全保镖|安全值守|平安值守)")
-_STATUS_RE = re.compile(r"(?:安全保镖|安全保镖|安全值守|平安值守)状态")
+_ARM_RE = re.compile(r"开启(?:<SENSITIVE_A>|安全保镖|安全值守|平安值守)")
+_DISARM_RE = re.compile(r"关闭(?:<SENSITIVE_A>|安全保镖|安全值守|平安值守)")
+_STATUS_RE = re.compile(r"(?:<SENSITIVE_A>|安全保镖|安全值守|平安值守)状态")
 # 周五问了"要不要开启"之后，车主回这些话也算数（车主 2026-10-12 定）
 _YES_RE = re.compile(r"^(?:是|是的|对|好|好的|要|可以|需要|开启吧|开吧|yes|y|ok)$", re.I)
 _NO_RE = re.compile(r"^(?:否|不|不用|不要|不了|先不|no|n)$", re.I)
@@ -62,7 +62,7 @@ _NO_RE = re.compile(r"^(?:否|不|不用|不要|不了|先不|no|n)$", re.I)
 _CONFIRM_WINDOW = 600.0
 
 _ALERT_MSG = (
-    "车主现在可能遭遇了危险。请联系一下他，如果他一个小时内没有回复，"
+    "<OWNER_NAME>现在可能遭遇了危险。请联系一下他，如果他一个小时内没有回复，"
     "请你自行决定是否要采取一些措施。"
 )
 
@@ -171,7 +171,7 @@ def verify_configured() -> bool:
 
 
 def _code_ok(text: str) -> bool:
-    """数字暗号。允许夹在句子里（"暗号 000000"），但不允许和别的数字粘连。"""
+    """数字暗号。允许夹在句子里（"暗号 <SENSITIVE_C>"），但不允许和别的数字粘连。"""
     c = config.SAFETY_CODE
     if not c:
         return False
@@ -374,7 +374,7 @@ def handle_owner_command(text: str, sender_qq: int, via_group: bool) -> bool:
             _dm(f"安全保镖值守中（自 {since}）。今天：{today_ping}。"
                 f"截止时间每天 {config.SAFETY_ALERT_HOUR}:00（私信我说句话就算）。")
         else:
-            _dm("当前未开启。要开启请发「开启安全保镖」（会再跟你确认一次）。")
+            _dm("当前未开启。要开启请发「开启<SENSITIVE_A>」（会再跟你确认一次）。")
         return True
 
     return False

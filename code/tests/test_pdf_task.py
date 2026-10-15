@@ -54,7 +54,7 @@ try:
 except ImportError:
     HAVE_PDF = False
 
-BOT_QQ = <机器人QQ>
+BOT_QQ = <BOT_QQ>
 GROUP = 999999            # 假群号：所有发送都进桩，绝无真实消息
 TINY_PDF = TESTS / "_tiny_test.pdf"
 
@@ -166,7 +166,9 @@ def test_full_chain():
     T.ok(len(CALLS["decide"]) == 1, "调了一次解题")
     d = CALLS["decide"][0]
     T.ok(d["pdf"] is False, "不强制 PDF（模型按体量选 文字/图片/PDF）")
-    T.ok(d["max_tokens"] == 8000, "保留大输出预算防截断")
+    # 2026-10-12：8000 → 12000（10 道题这类大活会被 8000 截断，截断比写短更糟）
+    # 2026-10-12：12000 → 16000（要求「详细/严谨」时正文更长；正文上限已到 20000）
+    T.ok(d["max_tokens"] == 16000, "保留大输出预算防截断")
     T.ok("输出形式" in d["context"], "上下文带了输出形式指引")
     T.ok("明确说了要 PDF" in d["context"], "带了「明确要 PDF 则必发 PDF」的优先级规则")
     T.ok("必须输出" in brain.PDF_HINT and "只有这条消息里根本没有具体问题" in brain.PDF_HINT,

@@ -111,15 +111,6 @@ if [ -x /home/qqbot/qq-bot/venv/bin/python ]; then
     sudo -u qqbot /home/qqbot/qq-bot/venv/bin/python /home/qqbot/qq-bot/spend.py 2>&1 | sed 's/^/  /'
 fi
 
-# ---- 7. 清理渲染产物 ----
-# out/ 里是发给群友的成品（文件名是随机 hash，无法复用）。
-# 以前没有清理逻辑，会无限增长。保留最近 7 天，更早的删掉。
-OUT_DIR="$BOT_DIR/out"
-if [ -d "$OUT_DIR" ]; then
-    PRUNED=$(find "$OUT_DIR" -type f -mtime +7 -delete -print 2>/dev/null | wc -l)
-    [ "$PRUNED" -gt 0 ] && echo "  已清理 $PRUNED 个过期渲染产物（超过 7 天）"
-fi
-
 if [ ${#problems[@]} -eq 0 ]; then
     say "OK | 流量 ${TOTAL_GB}GB | 磁盘 ${DISK_PCT}%"
 else

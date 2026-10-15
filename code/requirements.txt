@@ -1,0 +1,14 @@
+# e阶导 QQ 答疑机器人 · Python 依赖
+#
+# 生成依据：把 server/ tools/ latex/ 里所有 import 扫了一遍，**只留真正用到的**。
+# （psutil / PyYAML / tabulate / numpy 在虚拟环境里存在，但代码里一处都没 import，
+#   所以不列 —— 宁可少写，也不要写没用的进去。）
+#
+# ⚠️ 之前**没有这个文件**，deploy.sh 的 pip 步骤每次都报
+#    「Could not open requirements file」，虽然不影响运行（依赖早装好了），
+#    但每次部署都刷一条 ERROR 很干扰人，补上。
+#
+# 版本下限取的是服务器上实测能跑通的版本（见下），不是随便写的。
+requests>=2.31         # 所有 API 调用（服务器实测 2.34.2）
+pymupdf>=1.24          # PDF 读取 / 讲义盖章 / 转图（服务器实测 1.28.2）
+pillow>=10.0           # 长图拼接 / 手写判定（服务器实测 12.3.0）

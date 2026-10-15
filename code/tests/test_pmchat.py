@@ -42,7 +42,7 @@ import humanize  # noqa: E402
 import onebot  # noqa: E402
 import pmchat  # noqa: E402
 
-FRIEND, STRANGER, OWNER = 20000, 30000, <我的QQ>
+FRIEND, STRANGER, OWNER = 20000, 30000, <OWNER_QQ>
 SENT: list[tuple] = []
 DECIDES: list[dict] = []
 
@@ -133,7 +133,7 @@ def test_bot_own_excluded_and_owner_answered():
     reset()
     config.PM_CHAT_USERS = [FRIEND, OWNER]        # ← 车主现在也在白名单里了
     FAKE_MSGS.append({"time": time.time() - 5,
-                      "sender": {"user_id": config.BOT_QQ or <机器人QQ>, "nickname": "e阶导"},
+                      "sender": {"user_id": config.BOT_QQ or <BOT_QQ>, "nickname": "e阶导"},
                       "message": [{"type": "text", "data": {"text": "✅ 已成功开启"}}]})
     FAKE_MSGS.append({"time": time.time() - 4,
                       "sender": {"user_id": OWNER, "nickname": "车主"},

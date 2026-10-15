@@ -22,7 +22,18 @@ for f in "$SRC"/*.py "$SRC"/*.sh "$SRC"/.env.example "$SRC"/requirements.txt; do
 done
 echo "    同步了 $copied 个文件"
 
-mkdir -p "$DST/latex" "$DST/out" "$DST/state"
+mkdir -p "$DST/latex" "$DST/out" "$DST/state" "$DST/docs"
+# docs/（方法论文档、陷阱库、考研政治考点库等）也要同步过去 —— 运行时要读
+# ⚠️ 必须**递归**：考研政治工具箱是 docs/考研政治答题工具箱/ 子目录，里面有 .db
+if [ -d "$SRC/docs" ]; then
+    ( cd "$SRC/docs" && find . -type f \( -name '*.md' -o -name '*.db' -o -name '*.json' \) -print0 ) \
+    | while IFS= read -r -d '' rel; do
+        sub="$(dirname "$rel")"
+        [ "$sub" = "." ] || mkdir -p "$DST/docs/$sub"
+        install -o qqbot -g qqbot -m 644 "$SRC/docs/$rel" "$DST/docs/$rel"
+    done
+    chown -R qqbot:qqbot "$DST/docs"
+fi
 for f in "$SRC"/latex/*.py "$SRC"/latex/*.tex; do
     [ -f "$f" ] || continue
     install -o qqbot -g qqbot -m 644 "$f" "$DST/latex/$(basename "$f")"

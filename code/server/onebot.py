@@ -85,7 +85,19 @@ def at_targets(message: Any) -> list[str]:
 # ---------------- 发送 ----------------
 
 def _send(kind: str, target_id: int, message: list) -> dict:
-    """统一发送入口。kind 为 group / private。"""
+    """统一发送入口。kind 为 group / private。
+
+    ⚠️ **记账放在这里（最底层出口）**，不放在 send_parts ——
+    因为「冷场表情包」等路径会绕过 send_parts，那样计数会偏少，
+    限额就形同虚设（2026-10-14 真实踩坑：守卫放调用点漏了一次）。
+    """
+    # 按消息内容判断是「文件」还是普通消息：有 file 段就算 pdf 配额
+    _is_file = any(isinstance(x, dict) and x.get("type") == "file" for x in (message or []))
+    try:
+        import throttle as _th
+        _th.note("pdf" if _is_file else "msg")
+    except Exception:
+        pass
     if kind == "group":
         return call("send_group_msg", group_id=target_id, message=message)
     return call("send_private_msg", user_id=target_id, message=message)
@@ -129,11 +141,56 @@ def _send_image(kind: str, target_id: int, path: Path) -> dict:
     return _send_media(kind, target_id, path, "image")
 
 
+# ══════════ 静默总闸（车主 2026-10-14 定）══════════
+# **为什么放在这一层**：REST_MODE 原来只在 handle_message 开头挡了一道，
+# 结果「冷场表情包」走的是另一条路径，**绕过了守卫** ——
+# 2026-10-14 07:00 备用号因此往群里发了一张表情包，26 分钟后账号掉线。
+# 教训：**守卫要放在最底层的出口，不能放在各个调用点** ——
+# 调用点会漏，出口不会。
+def _throttle_blocked(kind: str) -> bool:
+    """发送前的节流检查（风控收敛，2026-10-14）。
+
+    ⚠️ **为什么也放在这一层**：跟静默总闸同一个道理 ——
+    节流原来只挂在 send_parts 上，而「冷场表情包」等路径绕过了它。
+    **守卫和节流都必须放在最底层的出口**，放调用点一定会漏。
+    """
+    try:
+        import throttle
+        ok, why = throttle.allow(kind)
+        if not ok:
+            print(f"{__import__('time').strftime('%Y-%m-%d %H:%M:%S')} [WARN] 节流拦下 {kind}：{why}",
+                  flush=True)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _rest_blocked(what: str) -> bool:
+    try:
+        import config
+        if getattr(config, "REST_MODE", False):
+            print(f"{__import__('time').strftime('%Y-%m-%d %H:%M:%S')} [INFO] 静默模式，拦下 {what}",
+                  flush=True)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def send_group_text(group_id: int, text: str) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("群文字"):
+        return None
     return _send("group", group_id, [{"type": "text", "data": {"text": text}}])
 
 
 def send_group_at(group_id: int, qq, text: str) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("群@"):
+        return None
     """@ 某个群友 + 说一句话（用于做完文件后的收尾通知）。"""
     return _send("group", group_id, [
         {"type": "at", "data": {"qq": str(qq)}},
@@ -142,26 +199,50 @@ def send_group_at(group_id: int, qq, text: str) -> dict:
 
 
 def send_private_text(user_id: int, text: str) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("私聊文字"):
+        return None
     return _send("private", user_id, [{"type": "text", "data": {"text": text}}])
 
 
 def send_group_image(group_id: int, path: Path) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("群图片"):
+        return None
     return _send_image("group", group_id, path)
 
 
 def send_group_video(group_id: int, path: Path) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("群视频"):
+        return None
     return _send_media("group", group_id, path, "video")
 
 
 def send_private_video(user_id: int, path: Path) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("私聊视频"):
+        return None
     return _send_media("private", user_id, path, "video")
 
 
 def send_private_image(user_id: int, path: Path) -> dict:
+    if _throttle_blocked("msg"):
+        return None
+    if _rest_blocked("私聊图片"):
+        return None
     return _send_image("private", user_id, path)
 
 
 def send_group_file(group_id: int, path: Path, name: str | None = None) -> dict:
+    if _throttle_blocked("pdf"):
+        return None
+    if _rest_blocked("群文件"):
+        return None
     """发文件（PDF 走这里）。"""
     path = path.resolve()
     name = name or path.name
@@ -176,6 +257,10 @@ def send_group_file(group_id: int, path: Path, name: str | None = None) -> dict:
 
 
 def send_private_file(user_id: int, path: Path, name: str | None = None) -> dict:
+    if _throttle_blocked("pdf"):
+        return None
+    if _rest_blocked("私聊文件"):
+        return None
     path = path.resolve()
     name = name or path.name
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"

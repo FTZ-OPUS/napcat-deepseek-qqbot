@@ -22,3 +22,6 @@ state/
 latex/*.aux
 latex/*.log
 latex/*.out
+
+# 用户建议反馈（含真实群友消息，**绝不公开**）
+重要用户建议反馈/

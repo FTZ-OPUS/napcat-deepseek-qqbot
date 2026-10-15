@@ -57,7 +57,10 @@ ALLOWED_GROUPS = _ints("ALLOWED_GROUPS")
 POLL_INTERVAL = _float("POLL_INTERVAL", 2.0)      # 轮询间隔（秒）
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", "10") or 10)   # 送进模型的最近消息条数
 MIN_REPLY_INTERVAL = _float("MIN_REPLY_INTERVAL", 40.0)          # 同群两次回复的最小间隔
-MAX_PARTS = int(os.environ.get("MAX_PARTS", "3") or 3)           # 一条回复最多拆成几段
+# 一条回复最多拆成几段。
+# 2026-10-13 从 3 提到 4：政治题闲聊式回答要在**文字中间插图**
+#（文字 → 图 → 文字 → 图），3 段放不下两张图。
+MAX_PARTS = int(os.environ.get("MAX_PARTS", "4") or 4)
 
 # 触发概率
 PROB_AT = 1.0            # 被 @ 必回
@@ -164,7 +167,7 @@ PDF_TASK_MAX_PAGES = int(os.environ.get("PDF_TASK_MAX_PAGES", "60") or 60)   # �
 PDF_TASK_CACHE_TTL = _float("PDF_TASK_CACHE_TTL", 1800.0)
 
 # ---- 周末平安值守（车主 2026-10-11 定的个人安全功能，详见 server/safety.py）----
-# 车主私信「开启安全保镖」才开启；周六周日每天 21:00 前私信发「平安」；
+# 车主私信「开启<SENSITIVE_A>」才开启；周六周日每天 21:00 前私信发「平安」；
 # 没报 → 群里 @ 紧急联系人发警报；周一自动解除。
 # ⚠️ SAFETY_OWNER_QQ 不填 = 整个功能不生效；两个 QQ 都必须是机器人的好友。
 SAFETY_CHECK_ENABLED = os.environ.get("SAFETY_CHECK_ENABLED", "1").strip() == "1"
@@ -231,6 +234,7 @@ def _build_providers() -> list[dict]:
         2. 备用1    官方B  10-17 到期
         3. 备用2    官方E  10-17 到期
         4. 备用3    官方C  无到期日
+        5. 备用4    官方D  无到期日（新号池，2026-10-12 加）
         5. 备用4    小米 MiMo V2.6 Pro  11-10 到期（¥10）
         6. 备用5    小米 MiMo Flash     40 天期
         7. 备用6    火山方舟   50 万 token（第三方）
@@ -244,6 +248,10 @@ def _build_providers() -> list[dict]:
             extra: dict | None = None) -> None:
         key = (key or "").strip()
         if not key:
+            return
+        # 支持按名字临时停用某条线路（额度耗尽的线路留着只会白试一次，拉长回复时间）
+        disabled = [x.strip() for x in os.environ.get("DISABLED_LINES", "").split(",") if x.strip()]
+        if name in disabled:
             return
         out.append({
             "name": name,
@@ -269,11 +277,15 @@ def _build_providers() -> list[dict]:
     # 为什么插在这个位置：**按到期日排序** ——
     #     官方A(10-13) → 官方B(10-17) → 官方E(10-17) → 官方C(无到期)
     # 快过期的额度先用掉，不过期的留到最后，避免"用不完就作废"。
-    add("备用2",
-        os.environ.get("FALLBACK2_API_KEY"),
-        os.environ.get("FALLBACK2_BASE_URL", "https://api.deepseek.com"),
-        os.environ.get("FALLBACK2_MODEL", "deepseek-chat"),
-        os.environ.get("FALLBACK2_NOTE", "官方E（10-17 到期）"))
+    # ⚠️ 备用2（官方E）已于 2026-10-15 **撤下** —— 余额 -¥0.01（欠费），
+    #    实测返回 HTTP 402。车主确认："那个备用2 估计没了，应该我也开发你用掉，
+    #    你给它撤掉就行了。"
+    #    **代码留着**（不删）—— 哪天充上钱，把下面这段注释去掉就恢复了。
+    # add("备用2",
+    #     os.environ.get("FALLBACK2_API_KEY"),
+    #     os.environ.get("FALLBACK2_BASE_URL", "https://api.deepseek.com"),
+    #     os.environ.get("FALLBACK2_MODEL", "deepseek-chat"),
+    #     os.environ.get("FALLBACK2_NOTE", "官方E（10-17 到期）"))
 
     add("备用3",
         os.environ.get("FALLBACK3_API_KEY"),
@@ -282,7 +294,16 @@ def _build_providers() -> list[dict]:
         os.environ.get("FALLBACK3_NOTE", "官方C（无到期日）"))
     # 备用3（官方D）已于 2026-10-10 撤掉 —— 车主拿它去开发了，
     # 机器人不再占用它的额度。要恢复就把上面那段 add() 加回来。
-    # 备用5：小米 MiMo（Xiaomi MiMo API 开放平台）
+
+    # 备用4：官方D —— 新号池（车主 2026-10-12 提供，余额 ¥2.01）
+    # 和前面三把一样是**官方线路**（速度同为 ~0.9s），但**无到期日** ——
+    # 所以排在所有「会过期」的官方之后，让快过期的额度先用掉。
+    add("备用4",
+        os.environ.get("OFFICIAL2_API_KEY"),
+        os.environ.get("OFFICIAL2_BASE_URL", "https://api.deepseek.com"),
+        os.environ.get("OFFICIAL2_MODEL", "deepseek-chat"),
+        os.environ.get("OFFICIAL2_NOTE", "官方D（新号池，无到期日）"))
+    # 备用6：小米 MiMo（Xiaomi MiMo API 开放平台）
     #
     # 和火山方舟同为推理模型，但**处理方式相反** —— 实测数据：
     #     方舟：不识图也乱想，reasoning 吃掉 269~315，容易把 max_tokens 耗光
@@ -293,7 +314,7 @@ def _build_providers() -> list[dict]:
     # 多模态支持好：开着思考时它能认出卡通角色的具体出处，
     # 关掉就只能给泛泛描述 —— 说明它的思考对质量有实际贡献。
     # （下面两条小米线共用这套规矩：不关思考、多模态好。）
-    # 备用4：百度千帆（Baidu Qianfan）——车主 2026-10-12 加
+    # 备用5：百度千帆（Baidu Qianfan）——车主 2026-10-12 加
     #
     # ⚠️ **必须关掉「思考」**，和火山方舟同一个坑（实测数据）：
     #     max_tokens=20 不关思考 → 20 个 token 全被 reasoning 吃掉，正文返回**空字符串**
@@ -303,27 +324,27 @@ def _build_providers() -> list[dict]:
     #
     # 模型是 deepseek-v4.1-flash（上下文 144 万 token），识图实测可用。
     # 30 天后到期、¥20 代金券（比小米的 40 天早），所以按到期日排序插在两条小米**之前**。
-    add("备用4",
+    add("备用5",
         os.environ.get("FALLBACK4_API_KEY"),
         os.environ.get("FALLBACK4_BASE_URL", "https://qianfan.baidubce.com/v2"),
         os.environ.get("FALLBACK4_MODEL", "deepseek-v4.1-flash"),
         os.environ.get("FALLBACK4_NOTE", "百度千帆（30天后到期，¥20 代金券）"),
         extra={"thinking": {"type": "disabled"}})
 
-    # 备用5：小米 MiMo V2.6 Pro（车主 2026-10-11 加：比 Flash 优先级高，
+    # 备用6：小米 MiMo V2.6 Pro（车主 2026-10-11 加：比 Flash 优先级高，
     # 先给大家用好模型；11-10 到期，¥10 额度）
-    add("备用5",
+    add("备用6",
         os.environ.get("FALLBACK5_API_KEY"),
         os.environ.get("FALLBACK5_BASE_URL", "https://api.xiaomimimo.com/v1"),
         os.environ.get("FALLBACK5_MODEL", "mimo-v2.6-pro"),
         os.environ.get("FALLBACK5_NOTE", "小米MiMo 2.6 Pro（11-10到期）"))
-    # 备用6：小米 MiMo Flash（原来排备用4，Pro 插进来后顺延）
-    add("备用6",
+    # 备用7：小米 MiMo Flash（原来排备用4，Pro 插进来后顺延）
+    add("备用7",
         os.environ.get("FALLBACK6_API_KEY"),
         os.environ.get("FALLBACK6_BASE_URL", "https://api.xiaomimimo.com/v1"),
         os.environ.get("FALLBACK6_MODEL", "mimo-v2.6-flash"),
         os.environ.get("FALLBACK6_NOTE", "小米MiMo 2.6 Flash（40天后到期）"))
-    # 备用7：火山方舟（Volcengine Ark）
+    # 备用8：火山方舟（Volcengine Ark）
     #
     # ⚠️ **必须关掉「思考」，这不是可选优化，是能不能用的前提。**
     # 方舟的 deepseek-v4-1-flash 是**推理模型**：它先输出 reasoning 再输出正文，
@@ -332,22 +353,156 @@ def _build_providers() -> list[dict]:
     #     max_tokens=100 → reasoning=38，正文 11 字，正常
     # 空正文会让我们的 JSON 解析直接失败。关掉思考后 reasoning=0，
     # 正文稳定返回，而且快 2.4 倍（1.3s vs 3.1s），识图质量没差。
-    add("备用7",
+    add("备用8",
         os.environ.get("FALLBACK7_API_KEY"),
         os.environ.get("FALLBACK7_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
         os.environ.get("FALLBACK7_MODEL", "deepseek-v4-1-flash-260910"),
         os.environ.get("FALLBACK7_NOTE", "火山方舟（推理模型/已关思考）"),
         extra={"thinking": {"type": "disabled"}})
-    # 备用8：中转站（永远放最后一条）
-    add("备用8",
+    # 备用9：中转站（永远放最后一条）
+    add("备用9",
         os.environ.get("FALLBACK8_API_KEY"),
         os.environ.get("FALLBACK8_BASE_URL", "https://api.bingheai.org/v1"),
         os.environ.get("FALLBACK8_MODEL", "deepseek-4.1-flash"),
         os.environ.get("FALLBACK8_NOTE", "中转站（慢，最后兜底）"))
-    return out
+    # ══════════ 点名专用线（车主 2026-10-14 定）══════════
+    # 群友**点名**要某个模型时，直接路由给它；其余一律走 DeepSeek 保速度。
+    #
+    # ⚠️ jieyouai 这个站**按 key 分组** —— 实测（2026-10-14）：
+    #      sk-19537e…（Claude 组）→ 23 个 claude 模型，调 claude-opus-5-5 OK
+    #      sk-f815e7…（GPT 组）   → 10 个 gpt 模型，调 claude 报 404 not available for this group
+    #    所以**两条线各用各的 key，不能混**（我第一次就混了，误判 Opus 挂了）。
+    NAMED = []
+    if False:  # 2026-10-14 车主实测降质，Opus/Claude 线路已停用
+        k = (os.environ.get("OPUS_API_KEY") or "").strip()
+        if k:
+            NAMED.append({
+                "name": "Opus5.5",
+                "base_url": os.environ.get("OPUS_BASE_URL", "https://api.jieyouai.it.com/v1").rstrip("/"),
+                "key": k,
+                "model": os.environ.get("OPUS_MODEL", "claude-opus-5-5"),
+                "note": "点名线：Opus 5.5（实测 5/5 数学题对，中位 9.55s）",
+                # 触发词：只认这两个人名，大小写不敏感
+                "hints": ("claude", "opus"),
+            })
+    if os.environ.get("GPT_ENABLED", "1").strip() == "1":
+        k = (os.environ.get("GPT_API_KEY") or "").strip()
+        if k:
+            NAMED.append({
+                "name": "GPT6.1SOL",
+                "base_url": os.environ.get("GPT_BASE_URL", "https://api.jieyouai.it.com/v1").rstrip("/"),
+                "key": k,
+                "model": os.environ.get("GPT_MODEL", "gpt-6.1-sol"),
+                "note": "点名线：GPT 6.1 SOL（实测矩阵求逆正确；偏慢 15~90s）",
+                "hints": ("gpt", "sol", "6.1"),
+            })
+    # ⭐ 车主 2026-10-14 追加：ASTRA —— 更强的型号（gpt-6-astra）
+    # 路由规则（车主原话）：
+    #   「别人要说 GPT，你就默认是 6.1 Sol。
+    #     如果说 ASTRA 这个词出现了，大小写都可以……那你就路由到那个。」
+    # ⚠️ 命中顺序上 astra 必须**先于** gpt 判断（见 main.reply_policy），
+    #    否则「用 astra 而不是 gpt」会被 gpt 抢先命中。
+    if os.environ.get("GPT_ENABLED", "1").strip() == "1":
+        _ka = (os.environ.get("GPT_API_KEY") or "").strip()
+        if _ka:
+            NAMED.append({
+                "name": "GPT6ASTRA",
+                "base_url": os.environ.get("GPT_BASE_URL", "https://api.jieyouai.it.com/v1").rstrip("/"),
+                "key": _ka,
+                "model": os.environ.get("ASTRA_MODEL", "gpt-6-astra"),
+                "note": "点名线：GPT 6 ASTRA（更强型号，触发词 astra 不限大小写）",
+                "hints": ("astra",),
+            })
+
+    # 备用10：jieyouai 中转站（车主 2026-10-14 给的新站）
+    # ⚠️ 接入时**账户余额是 0** —— 实测（做了对照）：
+    #      你给的 key   → HTTP 403 INSUFFICIENT_BALANCE（key 有效，只是没钱）
+    #      故意写错的 key → HTTP 401 INVALID_API_KEY（无效 key 长这样）
+    #    → **key 格式没问题，充值后就能用**，不用改代码，只要确认模型 id。
+    #    ⚠️ 模型 id 还没法验证（余额不足时任何模型都返回 403，试不出哪个存在）。
+    #       充值后我拿它试一圈，把 FALLBACK9_MODEL 改成该站真实支持的 id。
+    #    想临时摘掉这条线：设 FALLBACK9_ENABLED=0
+    if os.environ.get("FALLBACK9_ENABLED", "1").strip() == "1":
+        add("备用10",
+            os.environ.get("FALLBACK9_API_KEY"),
+            os.environ.get("FALLBACK9_BASE_URL", "https://api.jieyouai.it.com/v1"),
+            os.environ.get("FALLBACK9_MODEL", "deepseek-chat"),
+            os.environ.get("FALLBACK9_NOTE", "jieyouai 中转站（待充值）"))
+    return out, NAMED
 
 
-PROVIDERS = _build_providers()
+PROVIDERS, NAMED_PROVIDERS = _build_providers()
+
+# ══════════ 识图 API（**和答疑 API 分开**，车主 2026-10-13 定）══════════
+# 为什么要分开：
+#   群友反映「草稿纸上的手写题」识别难度大，别的机器人（用 Gemini）认得更准，
+#   人都跑去那边批改草稿了。所以**手写稿先用 Gemini 把题抄准，再交给 DeepSeek 解答**。
+#   正常图片/PDF（印刷题、截图）照旧走 DeepSeek —— 快得多（0.8s vs 8.9s）。
+#
+# ⚠️ 模型 id 是 `gemini-3.8-flash-high`（实测 `gemini-3.8-flash` 会 503 说不存在）。
+# ⚠️ key 默认沿用中转站那把（实测能调 gemini）；车主另给的 key 若生效，填 VISION_API_KEY 覆盖。
+VISION_API_BASE = os.environ.get("VISION_API_BASE", "https://api.bingheai.org/v1").rstrip("/")
+VISION_API_MODEL = os.environ.get("VISION_API_MODEL", "gemini-3.8-flash-high")
+VISION_API_KEY = os.environ.get("VISION_API_KEY", "").strip()
+if not VISION_API_KEY:
+    # 没单独配就借用中转站的 key（同平台、实测可用）
+    for _p in PROVIDERS:
+        if "binghe" in _p["base_url"].lower():
+            VISION_API_KEY = _p["key"]
+            break
+# 手写识别总开关；关掉就所有图都走 DeepSeek
+VISION_HANDWRITING = os.environ.get("VISION_HANDWRITING", "1").strip() == "1"
+
+# ---- 每日政治知识点推荐（车主 2026-10-13 定）----
+# 每天固定时间从考研政治考点库里挑一条没推过的，写成群聊口吻 + 配关系图发群里。
+POLITICS_DAILY_ENABLED = os.environ.get("POLITICS_DAILY_ENABLED", "1").strip() == "1"
+POLITICS_DAILY_HOUR = int(os.environ.get("POLITICS_DAILY_HOUR", "8") or 8)      # 默认早上 8 点
+POLITICS_DAILY_MINUTE = int(os.environ.get("POLITICS_DAILY_MINUTE", "0") or 0)
+
+# ══════════════ 运行模式开关（车主 2026-10-14 定）══════════════
+# **模式一 = 完整模式**：原来的全部行为 —— @ 必回、/pdf 必接、主动闲聊、
+#                        点名线（GPT）、识别复检、讲义/政治推送…
+# **模式二 = 受限模式**：风控恢复期的临时档 —— 只有「@ + gpt」和「政治题」回，
+#                        其余一律不发声
+#
+# ⚠️ 切模式**只改这一个值**，两种模式的代码都在，不会丢。
+#    切换：bash /home/qqbot/qq-bot/mode.sh 1    或    mode.sh 2
+BOT_MODE = int(os.environ.get("BOT_MODE", "2") or 2)
+
+# ══════════════ 静默休息模式（车主 2026-10-14 定）══════════════
+# **背景**：QQ 号 <BOT_QQ> 被腾讯冻结，申诉恢复。号在**观察期**，这时
+#           **任何自动发送行为都是风险**，所以先彻底停一天。
+#
+# ⚠️ **怎么"停"很关键**：
+#    ✅ 正确：QQ 挂着、机器人**零发送** → 看着就是个"在线但不说话的普通用户"，完全正常
+#    ❌ 错误：登出 QQ → 反复登出/登录**本身就是风控信号**，反而更糟
+#    所以这个开关只让机器人**闭嘴**，不动 QQ/NapCat。
+#
+# 开：REST_MODE=1  → 收到消息也不回，所有每日推送全停（但连接保持）
+# 关：REST_MODE=0  → 恢复正常
+REST_MODE = os.environ.get("REST_MODE", "0").strip() == "1"
+
+# ══════════════ 风控收敛（车主 2026-10-14 定）══════════════
+# **背景**：2026-10-14 凌晨 QQ 号 <BOT_QQ> 被腾讯**冻结**，申诉后恢复。
+# 根因分析：10-13 一天发了 **104 份 PDF**，加上 211 次秒回 ——
+#           QQ 风控最敏感的两件事（大量文件传输 + 高频自动回复）我们全占了。
+# 结论：**根因是行为，不是号**。换新号只会死得更快（新号更敏感）。
+#       所以继续用这个号，但把行为改掉。
+#
+# 这几项就是「收敛」开关，觉得太紧随时调大。
+PDF_DAILY_LIMIT = int(os.environ.get("PDF_DAILY_LIMIT", "30") or 30)      # 每天最多发几份 PDF
+SEND_HOURLY_LIMIT = int(os.environ.get("SEND_HOURLY_LIMIT", "15") or 15)  # 每小时最多发几条（含图片/文件）
+SEND_GAP_MIN = float(os.environ.get("SEND_GAP_MIN", "1.2") or 1.2)        # 两条之间最小间隔（秒）
+SEND_GAP_MAX = float(os.environ.get("SEND_GAP_MAX", "4.0") or 4.0)        # 最大间隔（随机，像真人）
+THROTTLE_ENABLED = os.environ.get("THROTTLE_ENABLED", "1").strip() == "1"
+
+# ---- 每日群使用分析报告（车主 2026-10-13 定）----
+# 每晚定时生成一份：谁@得多、谁最满意、话题分布、token 费用、我的观察。
+# 存到 state/reports/<日期>.md，车主随时要看就取。
+REPORT_ENABLED = os.environ.get("REPORT_ENABLED", "1").strip() == "1"
+REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "23") or 23)
+REPORT_MINUTE = int(os.environ.get("REPORT_MINUTE", "30") or 30)
+
 
 # ---- 识图参数 ----
 # API 额度现在很充足（四条线路），所以识图给足质量：
@@ -360,6 +515,23 @@ VISION_MAX_LONG_SIDE = int(os.environ.get("VISION_MAX_LONG_SIDE", "1536") or 153
 # ⚠️ 可被环境变量覆盖 —— **测试必须覆盖它**，否则会把线上真实状态写坏。
 # 真实事故（2026-10-12）：测试用假 QQ 覆盖了线上 state/pmchat.json 的游标，
 # 游标一丢，重启后 pmchat 把历史私信全重答了一遍（凌晨 3 点给两个好友发了消息）。
+# ---- 每日答疑讲义（车主 2026-10-12 定）----
+# 把当天所有答疑 PDF 合成一份长讲义，带封面，发群里；车主可以直接存到电脑。
+# 凌晨 00:10 汇总**前一天**（群里 23:00 最活跃，23:50 会切掉尾巴；00:10 不在静默时段）。
+DAILY_DIGEST_ENABLED = os.environ.get("DAILY_DIGEST_ENABLED", "1").strip() == "1"
+DAILY_DIGEST_HOUR = int(os.environ.get("DAILY_DIGEST_HOUR", "0") or 0)
+DAILY_DIGEST_MINUTE = int(os.environ.get("DAILY_DIGEST_MINUTE", "10") or 10)
+# 讲义里单份 PDF 的份数上限（防某天异常多时合出一个几百页的怪物）
+# 默认 60 —— 实测一天 49 条是常态，40 会截掉当天的一部分（讲义就不完整了）。
+# 这个上限只是防"异常多的一天"合出几百页怪兽，正常日子不该碰到。
+DAILY_DIGEST_MAX_PARTS = int(os.environ.get("DAILY_DIGEST_MAX_PARTS", "60") or 60)
+# 原始 PDF 保留几天（车主定：先别删，3~5 天清一次）
+DAILY_KEEP_DAYS = int(os.environ.get("DAILY_KEEP_DAYS", "5") or 5)
+# 讲义超过这个大小（MB）就用 Ghostscript 压一道 —— 每天一份大文件，别让群友下载太慢
+DAILY_DIGEST_COMPRESS_MB = float(os.environ.get("DAILY_DIGEST_COMPRESS_MB", "2.0") or 2.0)
+# 成品讲义（_archive/）保留多少天；0 = 永久保留（车主以后要合成"总讲义"，默认别删）
+DAILY_ARCHIVE_KEEP_DAYS = int(os.environ.get("DAILY_ARCHIVE_KEEP_DAYS", "0") or 0)
+
 STATE_DIR = Path(os.environ.get("QQBOT_STATE_DIR") or (BASE / "state"))
 OUT_DIR = Path(os.environ.get("QQBOT_OUT_DIR") or (BASE / "out"))
 LATEX_DIR = BASE / "latex"
@@ -367,3 +539,8 @@ LOG_FILE = BASE / "bot.log"
 
 for _d in (STATE_DIR, OUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+
+# ⚠️ 旧消息硬保险（车主 2026-10-15 定：「千万不要补回」）
+#   超过这个秒数的消息一律不处理 —— 防止重启/游标丢失后追着回旧消息，
+#   那会瞬间回到高强度模式，风控风险极大。
+STALE_MSG_SECONDS = int(os.environ.get("STALE_MSG_SECONDS", "300") or 300)

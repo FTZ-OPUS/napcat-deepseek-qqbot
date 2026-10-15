@@ -1,0 +1,196 @@
+% ============================================================
+%  多页推导模板 · 风格 2（彩色题目/定理框）
+%
+%  和 template_doc.tex（默认风格）的区别：
+%    默认风格 = 全部白底黑字，只有一条蓝色分隔线
+%    风格 2   = **题目**和**定理**用 tcolorbox 彩色框框住，
+%               **解答仍然白底黑字、不加任何框**
+%
+%  ⚠️ 为什么解答不框（车主 2026-10-10 明确要求）：
+%    参考文档里把「定理」和「证明」都框了，结果整页全是色块 ——
+%    题目和解答没有视觉对比，反而看不出哪里是问题、哪里是解答。
+%    所以这里只框「输入」（题目/定理），不框「输出」（解答过程）。
+%
+%  正文由 render.py 注入到文件末尾的占位符处，请勿手动改动
+%  ⚠️ 注意：注释里**不能写出占位符的字面量**——
+%     否则 replace() 会把注释里的那处也替换掉，占位符变成 2 个，直接编译失败。
+% ============================================================
+\documentclass[11pt,a4paper]{ctexart}
+\usepackage{amsmath,amssymb}
+% ---- 2026-10-12 补：模型常用但原先缺失的命令（缺失会导致整篇渲染失败）----
+\usepackage{mathrsfs}   % \mathscr 花体（真实事故：这个缺失导致 PDF 发不出去）
+\usepackage{bm}          % \bm 粗体数学符号
+\usepackage{cancel}      % \cancel 划掉
+\usepackage{mathtools}   % \coloneqq 等，且增强 amsmath（须在 amsmath 之后）
+% ---- 2026-10-12 补：模型写证明/定理时**天天会用到**这些环境 ----
+% 真实事故：模型写 \begin{proof} → "Environment proof undefined" → 整篇渲染失败
+\usepackage{amsthm}
+\newtheorem{theorem}{定理}
+\newtheorem{lemma}[theorem]{引理}
+\newtheorem{corollary}[theorem]{推论}
+\newtheorem{proposition}[theorem]{命题}
+\theoremstyle{definition}
+\newtheorem{definition}{定义}
+\newtheorem{example}{例}
+\theoremstyle{remark}
+\newtheorem{remark}{注}
+% proof 环境由 amsthm 自带，不用再定义
+
+
+% ══════ 长图模式：**单页超长**（车主 2026-10-12 定）══════
+% 为什么这么做：群里看图比下载 PDF 方便得多。把整篇排在一张超长纸上，
+% 转成 PNG 后就是一张可以往下翻的长图 —— 没有分页缝隙，看起来是一整张。
+% 2500mm 远超实际需要；末尾的空白由 Pillow 自动裁掉（见 render.rasterize_long）。
+\usepackage[paperwidth=180mm,paperheight=2500mm,margin=14mm,top=12mm,bottom=10mm]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\setlist[itemize]{leftmargin=1.6em,itemsep=2pt,topsep=3pt}
+\setlist[enumerate]{leftmargin=1.9em,itemsep=2pt,topsep=3pt}
+% 分区标题：左侧一道彩色竖条（长图里最显眼的分段标记）
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{ink}}
+  {}{0pt}
+  {\color{accent}\rule[-0.18em]{3.5pt}{1.15em}\hspace{6pt}}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{ink}}
+  {}{0pt}
+  {\color{accent}\rule[-0.16em]{2pt}{1.0em}\hspace{5pt}}
+\titlespacing*{\section}{0pt}{14pt}{7pt}
+\titlespacing*{\subsection}{0pt}{10pt}{5pt}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+% ---- 表格支持 ----
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{longtable}
+\usepackage{graphicx}
+\newcommand{\tabfont}{\small}
+\renewcommand{\arraystretch}{1.15}
+
+% ---- 绘图支持 ----
+\usepackage{tikz}
+\usepackage{pgfplots}
+% ══════════ 第二种画图风格（车主 2026-10-14 定）══════════
+% 风格一（**主，约六成**）：上面 rbox/rarr 的手写坐标 TikZ —— 精确、可控
+% 风格二（**辅，偶尔用**）：自动布局的示意图 —— 省事、配色自动
+%    · smartdiagram → 流程图 / 循环图 / 阶梯递进图 / 优先级图
+%    · tikz-cd      → 交换图（代数：同态、映射、正合列）
+%    · forest       → 树状图（分类、语法树）
+\usepackage{smartdiagram}
+\usepackage{tikz-cd}
+\usepackage{forest}
+\pgfplotsset{compat=1.18}
+
+% ══════════ 关系图配色与样式（"彩色方框 + 带标签箭头"，2026-10-13 加）══════════
+% 用途：政治/数学里画「知识点关系图」——比如 生产力 →决定→ 生产关系 →决定→ 上层建筑
+%       配上反向的红色虚线「反作用」。也适用于维恩图、流程图、包含关系。
+% 为什么预置：让模型不必每次自己调颜色和箭头，**画得好看又稳定**。
+\definecolor{rbA}{HTML}{3A7CA5}   % 蓝
+\definecolor{rbB}{HTML}{2E8B57}   % 绿
+\definecolor{rbC}{HTML}{E07020}   % 橙
+\definecolor{rbD}{HTML}{7B3F8C}   % 紫
+\definecolor{rbR}{HTML}{D64545}   % 红（反作用 / 否定）
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+\tikzset{
+  % 用法：\node[rbox=rbA] (a) {生产力};
+  rbox/.style={rounded corners=3pt, draw=#1!65, fill=#1!12, line width=0.8pt,
+               minimum height=0.95cm, minimum width=2.2cm,
+               font=\small\bfseries, align=center, inner sep=4pt},
+  % 用法：\draw[rarr, rbA] (a) -- node[above,font=\scriptsize]{决定} (b);
+  rarr/.style={-{Stealth[length=2.4mm]}, line width=0.9pt},
+  % 反向虚线（反作用/否定）：\draw[rarrR, dashed] (b) to[bend left=28] (a);
+  rarrR/.style={-{Stealth[length=2.4mm]}, line width=0.9pt, dashed},
+}
+
+\usetikzlibrary{arrows.meta,calc,intersections,patterns,angles,quotes,
+                decorations.pathreplacing,decorations.markings,
+                positioning,shapes.geometric,backgrounds,fit}
+\usepgfplotslibrary{fillbetween}
+\tikzset{every picture/.style={line join=round}}
+\definecolor{plotA}{HTML}{2563EB}
+\definecolor{plotB}{HTML}{DC2626}
+\definecolor{plotC}{HTML}{059669}
+\definecolor{shade}{HTML}{FDBA74}
+
+% ---- 风格 2 专属：彩色框 ----
+\usepackage{tcolorbox}
+
+\tcbuselibrary{skins,breakable}
+\usepackage{enumitem}
+
+% 颜色主题（取自车主的 latex-format 参考）
+\definecolor{ptred}{HTML}{D64545}
+\definecolor{ptgold}{HTML}{D4A017}
+\definecolor{ptgreen}{HTML}{2E8B57}
+\definecolor{ptblue}{HTML}{3A7CA5}
+\definecolor{ptpurple}{HTML}{7B3F8C}
+\definecolor{ptteal}{HTML}{008080}
+\definecolor{ptorange}{HTML}{E07020}
+\definecolor{ptbg}{HTML}{F8F5F0}
+
+% 【题目框】蓝框，标题左贴 —— 用来框「题目/问题」
+\newtcolorbox{problembox}[1][题目]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptblue!70!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top left={xshift=3mm,yshift=-3mm},
+    boxed title style={colback=ptblue,sharp corners,size=small},
+    fonttitle=\large,
+    before skip=12pt, after skip=14pt
+}
+
+% 【定理框】红框，标题居中 —— 用来框「定理/引理/结论」
+\newtcolorbox{theorembox}[1][定理]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptred!70!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top center={xshift=0mm,yshift=-3mm},
+    boxed title style={colback=ptred,sharp corners,size=small},
+    fonttitle=\large\centering,
+    before skip=16pt, after skip=14pt
+}
+
+% 【注意框】橙框 —— 可选，用来强调易错点
+\newtcolorbox{notebox}[1][注意]{
+    enhanced, breakable,
+    colback=ptbg, colframe=ptorange!80!black,
+    title={\color{white}\bfseries #1},
+    attach boxed title to top left={xshift=3mm,yshift=-3mm},
+    boxed title style={colback=ptorange,sharp corners,size=small},
+    fonttitle=\large,
+    before skip=12pt, after skip=12pt
+}
+
+% ⚠️ 故意不提供「解答框」——解答就用普通正文，白底黑字。
+%    如果你（未来的维护者）想加，先想清楚：题目框和解答框都是色块时，
+%    整页会失去视觉层次，这是车主明确否掉的做法。
+
+% ---- 文档外观 ----
+\definecolor{accent}{HTML}{1F6FEB}
+\definecolor{ink}{HTML}{1A1A1A}
+\color{ink}
+
+\pagestyle{empty}  % 长图不留页码页眉
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\small\color{gray} AI 助手排版 · 风格 2 · 仅供参考}
+
+\setlength{\parindent}{0pt}
+\linespread{1.18}
+\setlength{\parskip}{0.5em}
+
+\begin{document}
+
+{\color{accent}\hrule height 1.2pt}
+\vspace{1.2em}
+
+%%__BODY__%%
+
+\vspace{1.6em}
+{\color{accent}\hrule height 1.2pt}
+
+\end{document}
